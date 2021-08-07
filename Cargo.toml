@@ -1,0 +1,9 @@
+[package]
+name = "threecast"
+version = "0.1.0"
+authors = ["Bradley Gannon <bradley@bradleygannon.com>"]
+edition = "2018"
+
+[dependencies]
+bzip2 = "0.4.3"
+chrono = "0.4.19"
