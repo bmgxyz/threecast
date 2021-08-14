@@ -174,8 +174,11 @@ fn product_symbology(
 ) -> ParseResult<(f32, f32, chrono::NaiveDateTime, Vec<Radial>)> {
     // decompress remaining input, which should all be compressed with bzip2
     let mut tmp = Vec::with_capacity(uncompressed_size as usize);
-    let mut decompressor = bzip2::Decompress::new(false);
-    decompressor.decompress_vec(&input, &mut tmp).unwrap();
+    let mut reader = bzip2_rs::DecoderReader::new(input.as_slice());
+    match std::io::copy(&mut reader, &mut tmp) {
+        Ok(_) => (),
+        Err(e) => return Err(format!("Failed to decompress symbology block: {}", e)),
+    };
 
     // header (Figure 3-6, Sheet 7)
     let (_, tail) = take_bytes(tmp, 16)?;

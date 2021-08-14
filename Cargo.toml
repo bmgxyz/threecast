@@ -5,5 +5,5 @@ authors = ["Bradley Gannon <bradley@bradleygannon.com>"]
 edition = "2018"
 
 [dependencies]
-bzip2 = "0.4.3"
+bzip2-rs = "0.1.2"
 chrono = "0.4.19"
