@@ -65,11 +65,11 @@ fn take_u32(input: Vec<u8>) -> ParseResult<u32> {
 }
 
 /// Parse an XDR string from the head of the input
-/// 
+///
 /// XDR strings are not null-terminated. Instead, they start with an unsigned
 /// four-byte integer that contains the total string length. Then, the contents
 /// of the string follow, padded with zero bytes to a multiple of four.
-/// 
+///
 /// For more information, see [RFC 1832](https://datatracker.ietf.org/doc/html/rfc1832#section-3.11).
 fn take_string(input: Vec<u8>) -> ParseResult<String> {
     let (length, tail) = take_u32(input)?;
@@ -110,9 +110,7 @@ fn message_header(input: Vec<u8>) -> ParseResult<()> {
     Ok(((), tail))
 }
 
-fn product_description(
-    input: Vec<u8>,
-) -> ParseResult<(f32, f32, OperationalMode, bool, i32)> {
+fn product_description(input: Vec<u8>) -> ParseResult<(f32, f32, OperationalMode, bool, i32)> {
     let (_, tail) = take_bytes(input, 2)?;
     let (latitude_int, tail) = take_i32(tail)?;
     let (longitude_int, tail) = take_i32(tail)?;
@@ -154,18 +152,26 @@ fn radial(input: Vec<u8>) -> ParseResult<Radial> {
     let mut precip_rates: Vec<f32> = Vec::with_capacity(num_bins as usize);
     let (precip_rate_bytes, tail) = take_bytes(tail, (num_bins * 4) as u16)?;
     for idx in 0..num_bins {
-        let buf: [u8; 2] = precip_rate_bytes[(idx*4+2) as usize..(idx*4+4) as usize].try_into().unwrap();
+        let buf: [u8; 2] = precip_rate_bytes[(idx * 4 + 2) as usize..(idx * 4 + 4) as usize]
+            .try_into()
+            .unwrap();
         precip_rates.push(u16::from_be_bytes(buf) as f32 / 1000.);
-    };
-    Ok((Radial {
-        azimuth,
-        elevation,
-        width,
-        precip_rates,
-    }, tail))
+    }
+    Ok((
+        Radial {
+            azimuth,
+            elevation,
+            width,
+            precip_rates,
+        },
+        tail,
+    ))
 }
 
-fn product_symbology(input: Vec<u8>, uncompressed_size: i32) -> ParseResult<(f32, f32, chrono::NaiveDateTime, Vec<Radial>)> {
+fn product_symbology(
+    input: Vec<u8>,
+    uncompressed_size: i32,
+) -> ParseResult<(f32, f32, chrono::NaiveDateTime, Vec<Radial>)> {
     // decompress remaining input, which should all be compressed with bzip2
     let mut tmp = Vec::with_capacity(uncompressed_size as usize);
     let mut decompressor = bzip2::Decompress::new(false);
@@ -202,17 +208,24 @@ fn product_symbology(input: Vec<u8>, uncompressed_size: i32) -> ParseResult<(f32
         tail = tmp.1;
     }
 
-    Ok(((range_to_first_bin, bin_size, chrono::NaiveDateTime::from_timestamp(capture_time as i64, 0), radials), tail))
+    Ok((
+        (
+            range_to_first_bin,
+            bin_size,
+            chrono::NaiveDateTime::from_timestamp(capture_time as i64, 0),
+            radials,
+        ),
+        tail,
+    ))
 }
 
 fn parse_dpr(input: Vec<u8>) -> Result<PrecipRate, String> {
     let (station_code, tail) = text_header(input)?;
     let (_, tail) = message_header(tail)?;
-    let (
-        (latitude, longitude, operational_mode, precip_detected, uncompressed_size),
-        tail,
-    ) = product_description(tail)?;
-    let ((range_to_first_bin, bin_size, capture_time, radials), _) = product_symbology(tail, uncompressed_size)?;
+    let ((latitude, longitude, operational_mode, precip_detected, uncompressed_size), tail) =
+        product_description(tail)?;
+    let ((range_to_first_bin, bin_size, capture_time, radials), _) =
+        product_symbology(tail, uncompressed_size)?;
     Ok(PrecipRate {
         station_code,
         capture_time,
