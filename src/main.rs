@@ -1,4 +1,6 @@
+use clap::{App, Arg, ArgGroup};
 use std::convert::TryInto;
+use std::error::Error;
 
 #[derive(Debug)]
 enum OperationalMode {
@@ -131,10 +133,7 @@ fn product_description(input: Vec<u8>) -> ParseResult<(f32, f32, OperationalMode
                 2 => OperationalMode::Precipitation,
                 _ => OperationalMode::Maintenance, // TODO: throw error here
             },
-            match precip_detected_int {
-                0 => false,
-                _ => true,
-            },
+            !matches!(precip_detected_int, 0),
             uncompressed_size,
         ),
         tail,
@@ -242,9 +241,59 @@ fn parse_dpr(input: Vec<u8>) -> Result<PrecipRate, String> {
     })
 }
 
-fn main() {
-    // TODO: use a CLI arg or something
-    let input = std::fs::read("./sn.last").unwrap();
+fn main() -> Result<(), Box<dyn Error>> {
+    let matches = App::new("threecast")
+        .version("0.1.0")
+        .author("Bradley Gannon <bradley@bradleygannon.com>")
+        .about("Like a forecast, but smaller")
+        .arg(
+            Arg::with_name("station")
+                .short("c")
+                .long("station")
+                .value_name("STATION")
+                .help("Four-letter station code, e.g. KGYX")
+                .takes_value(true),
+        )
+        .arg(
+            Arg::with_name("file")
+                .short("f")
+                .long("file")
+                .value_name("FILE")
+                .help("Path to a NEXRAD Level III Product 176 data file")
+                .takes_value(true),
+        )
+        .group(
+            ArgGroup::with_name("data-source")
+                .arg("station")
+                .arg("file")
+                .required(true),
+        )
+        .get_matches();
+
+    let input = if matches.is_present("station") {
+        let station_code = matches.value_of("station").unwrap().to_lowercase();
+        let resp = reqwest::blocking::get(format!(
+            "https://tgftp.nws.noaa.gov/SL.us008001/DF.of/DC.radar/DS.176pr/SI.{}/sn.last",
+            station_code
+        ))?;
+        match resp.status() {
+            reqwest::StatusCode::OK => resp.bytes()?.to_vec(),
+            status => {
+                return Err(format!(
+                    "Failed to get data for station code '{}': server responded with {}",
+                    station_code, status
+                )
+                .into())
+            }
+        }
+    } else if matches.is_present("file") {
+        std::fs::read(matches.value_of("file").unwrap())?
+    } else {
+        unreachable!();
+    };
+
     let dpr = parse_dpr(input).unwrap();
     println!("{:?}", dpr);
+
+    Ok(())
 }
