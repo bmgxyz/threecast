@@ -2,6 +2,9 @@ use clap::{App, Arg, ArgGroup};
 use std::convert::TryInto;
 use std::error::Error;
 
+mod geomath;
+use geomath::get_point_bearing_distance;
+
 #[derive(Debug)]
 enum OperationalMode {
     Maintenance,
@@ -28,6 +31,96 @@ struct PrecipRate {
     bin_size: f32,
     range_to_first_bin: f32,
     radials: Vec<Radial>,
+}
+
+type DataPoint = ([i64; 2], f32);
+type GridData = Vec<Vec<DataPoint>>;
+
+fn coord_as_i64(coord: f32) -> i64 {
+    (coord * 10000.) as i64
+}
+
+impl PrecipRate {
+    /// Given a desired height and width in pixels, convert the precip data in
+    /// the existing radials to an [equirectangular][0] grid of points.
+    ///
+    /// [0]: https://en.wikipedia.org/wiki/Equirectangular_projection
+    fn sample_radials_to_equirectangular(&self, height: usize, width: usize) -> GridData {
+        // first, convert every point from azimuth/bin to lat/lon
+        let mut radials_equirectangular: Vec<DataPoint> = Vec::new();
+        let mut coords: (f32, f32);
+        for radial in self.radials.iter() {
+            for (idx, bin) in radial.precip_rates.iter().enumerate() {
+                coords = get_point_bearing_distance(
+                    (self.latitude, self.longitude),
+                    radial.azimuth,
+                    self.bin_size * idx as f32 + 1. + self.range_to_first_bin,
+                );
+                radials_equirectangular
+                    .push(([coord_as_i64(coords.0), coord_as_i64(coords.1)], *bin));
+            }
+        }
+        // next, rearrange Vec<DataPoint> into a k-d tree for faster querying
+        let radials_kdmap: kd_tree::KdMap<[i64; 2], f32> =
+            kd_tree::KdMap::build(radials_equirectangular);
+        // finally, sample the radial data into a grid
+        let (mut current_lat, start_lon) =
+            get_point_bearing_distance((self.latitude, self.longitude), 315., 325.2691);
+        let mut coords = (current_lat, start_lon);
+        let mut samples: GridData = Vec::new();
+        let mut current_sample: kd_tree::ItemAndDistance<DataPoint, i64>;
+        for y in 0..height {
+            // TODO: refactor get_point_bearing_distance such that the latitude and
+            // longitude computations are separate; in these loops, we only need one
+            // or the other at a time, so it would be more efficient to just compute
+            // the one we need, instead of both every time
+            samples.push(Vec::new());
+            for x in 0..width {
+                // we use current_lat instead of coords.0 here because get_point_bearing_distance
+                // seems to have some latitude error even when bearing == 90 degrees
+                // but since we know the latitude shouldn't change as we go east, we can just fix its value
+                current_sample = radials_kdmap
+                    .nearest(&[coord_as_i64(current_lat), coord_as_i64(coords.1)])
+                    .unwrap();
+                samples[y].push((
+                    [coord_as_i64(current_lat), coord_as_i64(coords.1)],
+                    match current_sample.squared_distance {
+                        d if d < 100000 => current_sample.item.1,
+                        _ => 0.0,
+                    },
+                ));
+                coords = get_point_bearing_distance(
+                    (current_lat, start_lon),
+                    90.0,
+                    460.0 / (width as f32) * (x as f32),
+                );
+            }
+            current_lat = {
+                let new_start_coords = get_point_bearing_distance(
+                    (current_lat, start_lon),
+                    180.0,
+                    460.0 / (height as f32),
+                );
+                new_start_coords.0
+            };
+        }
+        samples
+    }
+}
+
+fn write_image(data: &GridData, filename: &str) {
+    let mut img: image::RgbImage = image::ImageBuffer::new(data[0].len() as u32, data.len() as u32);
+    for y in 0..data.len() {
+        for x in 0..data[0].len() {
+            img.put_pixel(
+                x as u32,
+                y as u32,
+                // TODO: use piecewise scaling logic here
+                image::Rgb([(255.0 * data[y][x].1.sqrt() / 3.) as u8; 3]),
+            )
+        }
+    }
+    img.save(filename).unwrap();
 }
 
 type ParseResult<T> = Result<(T, Vec<u8>), String>;
@@ -125,8 +218,8 @@ fn product_description(input: Vec<u8>) -> ParseResult<(f32, f32, OperationalMode
     let (_, tail) = take_bytes(tail, 14)?;
     Ok((
         (
-            latitude_int as f32 / 1000.,
-            longitude_int as f32 / 1000.,
+            latitude_int as f32 / 1000.0,
+            longitude_int as f32 / 1000.0,
             match operational_mode_int {
                 0 => OperationalMode::Maintenance,
                 1 => OperationalMode::CleanAir,
@@ -154,7 +247,7 @@ fn radial(input: Vec<u8>) -> ParseResult<Radial> {
         let buf: [u8; 2] = precip_rate_bytes[(idx * 4 + 2) as usize..(idx * 4 + 4) as usize]
             .try_into()
             .unwrap();
-        precip_rates.push(u16::from_be_bytes(buf) as f32 / 1000.);
+        precip_rates.push(u16::from_be_bytes(buf) as f32 / 1000.0);
     }
     Ok((
         Radial {
@@ -212,8 +305,8 @@ fn product_symbology(
 
     Ok((
         (
-            range_to_first_bin,
-            bin_size,
+            range_to_first_bin / 1000.,
+            bin_size / 1000.,
             chrono::NaiveDateTime::from_timestamp(capture_time as i64, 0),
             radials,
         ),
@@ -248,7 +341,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         .about("Like a forecast, but smaller")
         .arg(
             Arg::with_name("station")
-                .short("c")
+                .short("s")
                 .long("station")
                 .value_name("STATION")
                 .help("Four-letter station code, e.g. KGYX")
@@ -293,7 +386,11 @@ fn main() -> Result<(), Box<dyn Error>> {
     };
 
     let dpr = parse_dpr(input).unwrap();
-    println!("{:?}", dpr);
+
+    write_image(
+        &dpr.sample_radials_to_equirectangular(256, 256),
+        "./test.png",
+    );
 
     Ok(())
 }
