@@ -1,9 +1,11 @@
-use clap::{App, Arg, ArgGroup};
+use clap::{App, Arg};
 use std::convert::TryInto;
 use std::error::Error;
 
 mod geomath;
 use geomath::get_point_bearing_distance;
+
+mod stations;
 
 #[derive(Debug)]
 enum OperationalMode {
@@ -66,7 +68,7 @@ impl PrecipRate {
         // finally, sample the radial data into a grid
         let (mut current_lat, start_lon) =
             get_point_bearing_distance((self.latitude, self.longitude), 315., 325.2691);
-        let mut coords = (current_lat, start_lon);
+        let mut coords;
         let mut samples: GridData = Vec::new();
         let mut current_sample: kd_tree::ItemAndDistance<DataPoint, i64>;
         for y in 0..height {
@@ -75,6 +77,7 @@ impl PrecipRate {
             // or the other at a time, so it would be more efficient to just compute
             // the one we need, instead of both every time
             samples.push(Vec::new());
+            coords = (current_lat, start_lon);
             for x in 0..width {
                 // we use current_lat instead of coords.0 here because get_point_bearing_distance
                 // seems to have some latitude error even when bearing == 90 degrees
@@ -108,6 +111,7 @@ impl PrecipRate {
     }
 }
 
+#[allow(clippy::ptr_arg)]
 fn write_image(data: &GridData, filename: &str) {
     let mut img: image::RgbImage = image::ImageBuffer::new(data[0].len() as u32, data.len() as u32);
     for y in 0..data.len() {
@@ -334,6 +338,57 @@ fn parse_dpr(input: Vec<u8>) -> Result<PrecipRate, String> {
     })
 }
 
+/// Given a station code (e.g. KGYX), try to download the latest radar data for
+/// that station from the NWS. The data is on an NWS Web server [here][0]. The
+/// station codes are the last four characters of the directory names. The
+/// station directories contain data from the last day or so, and the most
+/// recent data file is always called `sn.last`.
+///
+/// [0]: https://tgftp.nws.noaa.gov/SL.us008001/DF.of/DC.radar/DS.176pr/
+fn get_data_by_station(station_code: &str) -> Result<Vec<u8>, Box<dyn Error>> {
+    let resp = reqwest::blocking::get(format!(
+        "https://tgftp.nws.noaa.gov/SL.us008001/DF.of/DC.radar/DS.176pr/SI.{}/sn.last",
+        station_code
+    ))?;
+    match resp.status() {
+        reqwest::StatusCode::OK => Ok(resp.bytes()?.to_vec()),
+        status => {
+            return Err(format!(
+                "Failed to get data for station code '{}': server responded with {}",
+                station_code, status
+            )
+            .into())
+        }
+    }
+}
+
+#[allow(clippy::ptr_arg)]
+fn find_pixel_by_lat_long(
+    pixels: &GridData,
+    latitude: f32,
+    longitude: f32,
+) -> Result<(usize, usize), Box<dyn Error>> {
+    // TODO: replace these linear searches with binary search
+    // since the data dimensions should only be 256 by 256, this is probably
+    // fine for now, or maybe forever
+
+    // first, find the latitude
+    let mut y = 0;
+    let target_lat = coord_as_i64(latitude);
+    while pixels[y][0].0[0] > target_lat {
+        y += 1;
+    }
+
+    // then, find the longitude
+    let mut x = 0;
+    let target_lon = coord_as_i64(longitude);
+    while pixels[y][x].0[1] < target_lon {
+        x += 1;
+    }
+
+    Ok((y, x))
+}
+
 fn main() -> Result<(), Box<dyn Error>> {
     let matches = App::new("threecast")
         .version("0.1.0")
@@ -345,7 +400,8 @@ fn main() -> Result<(), Box<dyn Error>> {
                 .long("station")
                 .value_name("STATION")
                 .help("Four-letter station code, e.g. KGYX")
-                .takes_value(true),
+                .takes_value(true)
+                .conflicts_with("file"),
         )
         .arg(
             Arg::with_name("file")
@@ -353,43 +409,60 @@ fn main() -> Result<(), Box<dyn Error>> {
                 .long("file")
                 .value_name("FILE")
                 .help("Path to a NEXRAD Level III Product 176 data file")
-                .takes_value(true),
+                .takes_value(true)
+                .conflicts_with("station"),
         )
-        .group(
-            ArgGroup::with_name("data-source")
-                .arg("station")
-                .arg("file")
-                .required(true),
+        .arg(
+            Arg::with_name("latitude")
+                .short("y")
+                .long("latitude")
+                .value_name("LATITUDE")
+                .help("e.g. \"51.4275\"")
+                .takes_value(true)
+                .required(true)
+                .allow_hyphen_values(true),
         )
+        .arg(
+            Arg::with_name("longitude")
+                .short("x")
+                .long("longitude")
+                .value_name("LONGITUDE")
+                .help("e.g. \"-87.7660\"")
+                .takes_value(true)
+                .required(true)
+                .allow_hyphen_values(true),
+        )
+        .arg(Arg::with_name("verbose").short("v").long("verbose"))
         .get_matches();
+
+    let latitude = matches.value_of("latitude").unwrap().parse::<f32>()?;
+    let longitude = matches.value_of("longitude").unwrap().parse::<f32>()?;
 
     let input = if matches.is_present("station") {
         let station_code = matches.value_of("station").unwrap().to_lowercase();
-        let resp = reqwest::blocking::get(format!(
-            "https://tgftp.nws.noaa.gov/SL.us008001/DF.of/DC.radar/DS.176pr/SI.{}/sn.last",
-            station_code
-        ))?;
-        match resp.status() {
-            reqwest::StatusCode::OK => resp.bytes()?.to_vec(),
-            status => {
-                return Err(format!(
-                    "Failed to get data for station code '{}': server responded with {}",
-                    station_code, status
-                )
-                .into())
-            }
-        }
+        get_data_by_station(&station_code)?
     } else if matches.is_present("file") {
         std::fs::read(matches.value_of("file").unwrap())?
     } else {
-        unreachable!();
+        let station_code = stations::find_nearest_station(latitude, longitude)?.to_lowercase();
+        get_data_by_station(&station_code)?
     };
 
-    let dpr = parse_dpr(input).unwrap();
-
-    write_image(
-        &dpr.sample_radials_to_equirectangular(256, 256),
-        "./test.png",
+    let dpr = parse_dpr(input)?;
+    let precip = dpr.sample_radials_to_equirectangular(256, 256);
+    let coords = find_pixel_by_lat_long(&precip, latitude, longitude)?;
+    let precip_at_coords = precip[coords.0][coords.1].1;
+    println!(
+        "Current precipitation: {} in/hr ({})",
+        precip_at_coords,
+        match precip_at_coords {
+            p if p == 0. => "none",
+            p if p < 0.098 => "light",
+            p if p < 0.35 => "moderate",
+            p if p < 2. => "heavy",
+            p if p >= 2. => "violent",
+            _ => unreachable!(),
+        }
     );
 
     Ok(())
