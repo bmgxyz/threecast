@@ -3,7 +3,7 @@ use std::convert::TryInto;
 use std::error::Error;
 
 mod geomath;
-use geomath::get_point_bearing_distance;
+use geomath::{get_distance_between_points, get_point_bearing_distance};
 
 mod stations;
 
@@ -450,7 +450,19 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let dpr = parse_dpr(input)?;
     let precip = dpr.sample_radials_to_equirectangular(256, 256);
-    let coords = find_pixel_by_lat_long(&precip, latitude, longitude)?;
+    let coords = {
+        if matches.is_present("file") {
+            let distance_from_station =
+                get_distance_between_points((latitude, longitude), (dpr.latitude, dpr.longitude));
+            if distance_from_station > 230. {
+                return Err(format!(
+                    "Supplied file contains data for station {}, but supplied point is outside coverage area ({} km away)",
+                    dpr.station_code,
+                    distance_from_station.round()).into());
+            }
+        }
+        find_pixel_by_lat_long(&precip, latitude, longitude)?
+    };
     let precip_at_coords = precip[coords.0][coords.1].1;
     println!(
         "Current precipitation: {} in/hr ({})",
