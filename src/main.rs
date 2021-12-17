@@ -459,8 +459,21 @@ fn main() -> Result<(), Box<dyn Error>> {
         .arg(Arg::with_name("verbose").short("v").long("verbose"))
         .get_matches();
 
-    let latitude = matches.value_of("latitude").unwrap().parse::<f32>()?;
-    let longitude = matches.value_of("longitude").unwrap().parse::<f32>()?;
+    let latitude = match matches.value_of("latitude").unwrap().parse::<f32>() {
+        Ok(lat) => lat,
+        Err(_) => return Err("Failed to parse latitude".into()),
+    };
+    let longitude = match matches.value_of("longitude").unwrap().parse::<f32>() {
+        Ok(lon) => lon,
+        Err(_) => return Err("Failed to parse longitude".into()),
+    };
+
+    if latitude >= 90. || latitude <= -90. {
+        return Err(format!("Latitude must be between -90 and 90 (got {})", latitude).into());
+    }
+    if longitude >= 180. || longitude <= -180. {
+        return Err(format!("Longitude must be between -180 and 180 (got {})", longitude).into());
+    }
 
     let input = if matches.is_present("station") {
         let station_code = matches.value_of("station").unwrap().to_lowercase();
