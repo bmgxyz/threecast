@@ -1,30 +1,30 @@
-use std::error::Error;
-
 use crate::geomath::get_distance_between_points;
 
 pub struct Station {
-    code: &'static str,
+    pub code: &'static str,
     latitude: f32,
     longitude: f32,
 }
 
-pub fn find_nearest_station(latitude: f32, longitude: f32) -> Result<&'static str, Box<dyn Error>> {
-    let mut best_distance = 230.;
-    let mut best_station_code = "";
+/// Given a coordinate, return an `Option<Vec>` containing the station codes for
+/// all stations within range of the given coordinate. Stations are sorted in
+/// ascending order of distance. If no stations are in range, return `None`.
+pub fn find_nearest_stations(latitude: f32, longitude: f32) -> Option<Vec<&'static str>> {
+    let mut stations_in_range: Vec<(&'static str, f32)> = Vec::new();
     for station in STATIONS {
         let distance = get_distance_between_points(
             (latitude, longitude),
             (station.latitude, station.longitude),
         );
-        if distance < best_distance {
-            best_distance = distance;
-            best_station_code = station.code;
+        if distance < 230. {
+            stations_in_range.push((station.code, distance));
         }
     }
-    if best_distance < 230. {
-        Ok(best_station_code)
+    if !stations_in_range.is_empty() {
+        stations_in_range.sort_by(|s1, s2| s1.1.partial_cmp(&s2.1).unwrap());
+        Some(stations_in_range.iter().map(|s| s.0).collect())
     } else {
-        Err(String::from("Given location is not within range of any radar stations").into())
+        None
     }
 }
 

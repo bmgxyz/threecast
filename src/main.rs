@@ -1,4 +1,5 @@
 use clap::{App, Arg};
+use regex::Regex;
 use std::convert::TryInto;
 use std::error::Error;
 
@@ -6,6 +7,7 @@ mod geomath;
 use geomath::{get_distance_between_points, get_point_bearing_distance};
 
 mod stations;
+use stations::STATIONS;
 
 #[derive(Debug)]
 enum OperationalMode {
@@ -389,6 +391,28 @@ fn find_pixel_by_lat_long(
     Ok((y, x))
 }
 
+/// Queries the NWS radar station status server and returns a `Vec` containing
+/// tuples of station codes and a boolean. The boolean indicates whether or not
+/// the station is online and operating, according to the status server.
+fn get_station_statuses() -> Result<Vec<(String, bool)>, Box<dyn Error>> {
+    let resp = reqwest::blocking::get("https://radar3pub.ncep.noaa.gov/")?;
+    let status_data = match resp.status() {
+        reqwest::StatusCode::OK => resp.bytes()?.to_vec(),
+        status => {
+            return Err(format!(
+                "Failed to get station statuses, server responded with: {}",
+                status
+            )
+            .into())
+        }
+    };
+    let re = Regex::new(r"(33FF33|FFFF00|0000FF|FF0000).*([A-Z]{4})").unwrap();
+    Ok(re
+        .captures_iter(std::str::from_utf8(&status_data).unwrap())
+        .map(|s| (s[2].to_owned(), &s[1] == "33FF33"))
+        .collect())
+}
+
 fn main() -> Result<(), Box<dyn Error>> {
     let matches = App::new("threecast")
         .version("0.1.0")
@@ -440,12 +464,41 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let input = if matches.is_present("station") {
         let station_code = matches.value_of("station").unwrap().to_lowercase();
+        if !STATIONS.iter().any(|s| s.code == station_code) {
+            return Err(format!("'{}' is not a valid station code", station_code).into());
+        }
+        let statuses = get_station_statuses()?;
+        if !statuses.iter().find(|s| s.0 == station_code).unwrap().1 {
+            return Err(format!("Station {} is offline", station_code).into());
+        }
         get_data_by_station(&station_code)?
     } else if matches.is_present("file") {
         std::fs::read(matches.value_of("file").unwrap())?
     } else {
-        let station_code = stations::find_nearest_station(latitude, longitude)?.to_lowercase();
-        get_data_by_station(&station_code)?
+        let nearby_stations = match stations::find_nearest_stations(latitude, longitude) {
+            Some(s) => s,
+            None => {
+                return Err(String::from(
+                    "Given location is not within range of any radar stations",
+                )
+                .into())
+            }
+        };
+        let station_statuses = get_station_statuses()?;
+        let mut precip_data = None;
+        for station in nearby_stations {
+            if station_statuses.iter().find(|s| s.0 == station).unwrap().1 {
+                precip_data = Some(get_data_by_station(&station.to_lowercase())?);
+                break;
+            }
+        }
+        if precip_data.is_none() {
+            return Err(String::from(
+                "All radar stations within range of this location are offline",
+            )
+            .into());
+        }
+        precip_data.unwrap()
     };
 
     let dpr = parse_dpr(input)?;
