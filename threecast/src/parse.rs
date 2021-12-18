@@ -19,6 +19,7 @@ pub struct Radial {
 pub struct PrecipRate {
     pub station_code: String,
     pub capture_time: chrono::NaiveDateTime,
+    pub scan_number: i32,
     pub latitude: f32,
     pub longitude: f32,
     pub operational_mode: OperationalMode,
@@ -244,7 +245,7 @@ fn radial(input: Vec<u8>) -> ParseResult<Radial> {
 fn product_symbology(
     input: Vec<u8>,
     uncompressed_size: i32,
-) -> ParseResult<(f32, f32, chrono::NaiveDateTime, Vec<Radial>)> {
+) -> ParseResult<(f32, f32, i32, chrono::NaiveDateTime, Vec<Radial>)> {
     // decompress remaining input, which should all be compressed with bzip2
     let mut tmp = Vec::with_capacity(uncompressed_size as usize);
     let mut reader = bzip2_rs::DecoderReader::new(input.as_slice());
@@ -266,7 +267,9 @@ fn product_symbology(
     let (_, tail) = take_string(tail)?; // radar name
     let (_, tail) = take_bytes(tail, 12)?;
     let (capture_time, tail) = take_u32(tail)?;
-    let (_, tail) = take_bytes(tail, 48)?;
+    let (_, tail) = take_bytes(tail, 8)?;
+    let (scan_number, tail) = take_i32(tail)?;
+    let (_, tail) = take_bytes(tail, 36)?;
 
     // Radial Component Data Structure (Figure E-3)
     let (_, tail) = take_bytes(tail, 4)?;
@@ -288,6 +291,7 @@ fn product_symbology(
         (
             range_to_first_bin / 1000.,
             bin_size / 1000.,
+            scan_number,
             chrono::NaiveDateTime::from_timestamp(capture_time as i64, 0),
             radials,
         ),
@@ -300,11 +304,12 @@ pub fn parse_dpr(input: Vec<u8>) -> Result<PrecipRate, String> {
     let (_, tail) = message_header(tail)?;
     let ((latitude, longitude, operational_mode, precip_detected, uncompressed_size), tail) =
         product_description(tail)?;
-    let ((range_to_first_bin, bin_size, capture_time, radials), _) =
+    let ((range_to_first_bin, bin_size, scan_number, capture_time, radials), _) =
         product_symbology(tail, uncompressed_size)?;
     Ok(PrecipRate {
         station_code,
         capture_time,
+        scan_number,
         latitude,
         longitude,
         operational_mode,
