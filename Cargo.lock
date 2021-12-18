@@ -1087,11 +1087,18 @@ version = "0.1.0"
 dependencies = [
  "bzip2-rs",
  "chrono",
- "clap",
  "image",
  "kd-tree",
  "regex",
  "reqwest",
+]
+
+[[package]]
+name = "threecast-cli"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "threecast",
 ]
 
 [[package]]

@@ -1,15 +1,5 @@
-[package]
-name = "threecast"
-version = "0.1.0"
-license = "Apache-2.0"
-authors = ["Bradley Gannon <bradley@bradleygannon.com>"]
-edition = "2021"
-
-[dependencies]
-bzip2-rs = "0.1.2"
-chrono = "0.4.19"
-clap = "2.34.0"
-image = "0.23.14"
-kd-tree = "0.4.1"
-reqwest = { version = "0.11.7", features = ["blocking"] }
-regex = "1.5.4"
+[workspace]
+members = [
+    "threecast",
+    "threecast-cli",
+]
