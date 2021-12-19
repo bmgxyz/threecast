@@ -11,7 +11,7 @@ use std::error::Error;
 pub fn get_data_by_station(station_code: &str) -> Result<Vec<u8>, Box<dyn Error>> {
     let resp = reqwest::blocking::get(format!(
         "https://tgftp.nws.noaa.gov/SL.us008001/DF.of/DC.radar/DS.176pr/SI.{}/sn.last",
-        station_code
+        station_code.to_lowercase()
     ))?;
     match resp.status() {
         reqwest::StatusCode::OK => Ok(resp.bytes()?.to_vec()),

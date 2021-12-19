@@ -480,11 +480,6 @@ pub const STATIONS: [Station; 161] = [
         longitude: -97.2778,
     },
     Station {
-        code: "KOUN",
-        latitude: 35.2358,
-        longitude: -97.4622,
-    },
-    Station {
         code: "KINX",
         latitude: 36.1750,
         longitude: -95.5642,
@@ -720,11 +715,6 @@ pub const STATIONS: [Station; 161] = [
         longitude: -117.6359,
     },
     Station {
-        code: "KVBG",
-        latitude: 34.8383,
-        longitude: -120.3977,
-    },
-    Station {
         code: "PHKI",
         latitude: 21.8938,
         longitude: -159.5524,
@@ -815,11 +805,6 @@ pub const STATIONS: [Station; 161] = [
         longitude: 144.8111,
     },
     Station {
-        code: "LPLA",
-        latitude: 38.7302,
-        longitude: -27.3216,
-    },
-    Station {
         code: "RKJK",
         latitude: 35.9241,
         longitude: 126.6222,
@@ -833,5 +818,20 @@ pub const STATIONS: [Station; 161] = [
         code: "RODN",
         latitude: 26.3077,
         longitude: 127.9034,
+    },
+    Station {
+        code: "KKSG",
+        latitude: 37.206985,
+        longitude: 127.285015,
+    },
+    Station {
+        code: "KVBX",
+        latitude: 34.8383137,
+        longitude: -120.3977805,
+    },
+    Station {
+        code: "KKJK",
+        latitude: 35.923981,
+        longitude: 126.622019,
     },
 ];
