@@ -2,4 +2,5 @@
 members = [
     "threecast",
     "threecast-cli",
+    "threecast-data-tool",
 ]

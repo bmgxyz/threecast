@@ -822,16 +822,16 @@ pub const STATIONS: [Station; 161] = [
     Station {
         code: "KKSG",
         latitude: 37.206985,
-        longitude: 127.285015,
+        longitude: 127.28502,
     },
     Station {
         code: "KVBX",
-        latitude: 34.8383137,
-        longitude: -120.3977805,
+        latitude: 34.838314,
+        longitude: -120.39778,
     },
     Station {
         code: "KKJK",
-        latitude: 35.923981,
-        longitude: 126.622019,
+        latitude: 35.92398,
+        longitude: 126.62202,
     },
 ];

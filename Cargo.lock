@@ -1097,6 +1097,17 @@ dependencies = [
 name = "threecast-cli"
 version = "0.1.0"
 dependencies = [
+ "chrono",
+ "clap",
+ "regex",
+ "threecast",
+]
+
+[[package]]
+name = "threecast-data-tool"
+version = "0.1.0"
+dependencies = [
+ "chrono",
  "clap",
  "threecast",
 ]
