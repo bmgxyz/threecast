@@ -1,6 +1,3 @@
 [workspace]
-members = [
-    "threecast",
-    "threecast-cli",
-    "threecast-data-tool",
-]
+members = ["threecast"]
+resolver = "3"

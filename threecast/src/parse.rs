@@ -1,4 +1,4 @@
-use crate::geomath::get_point_bearing_distance;
+use chrono::{DateTime, Utc};
 
 #[derive(Debug)]
 pub enum OperationalMode {
@@ -18,7 +18,7 @@ pub struct Radial {
 #[derive(Debug)]
 pub struct PrecipRate {
     pub station_code: String,
-    pub capture_time: chrono::NaiveDateTime,
+    pub capture_time: DateTime<Utc>,
     pub scan_number: i32,
     pub latitude: f32,
     pub longitude: f32,
@@ -29,113 +29,37 @@ pub struct PrecipRate {
     pub radials: Vec<Radial>,
 }
 
-type DataPoint = ([i64; 2], f32);
-pub type GridData = Vec<Vec<DataPoint>>;
-
-pub fn coord_as_i64(coord: f32) -> i64 {
-    (coord * 10000.) as i64
-}
-
-impl PrecipRate {
-    /// Given a desired height and width in pixels, convert the precip data in
-    /// the existing radials to an [equirectangular][0] grid of points.
-    ///
-    /// [0]: https://en.wikipedia.org/wiki/Equirectangular_projection
-    pub fn sample_radials_to_equirectangular(&self, height: usize, width: usize) -> GridData {
-        // first, convert every point from azimuth/bin to lat/lon
-        let mut radials_equirectangular: Vec<DataPoint> = Vec::new();
-        let mut coords: (f32, f32);
-        for radial in self.radials.iter() {
-            for (idx, bin) in radial.precip_rates.iter().enumerate() {
-                coords = get_point_bearing_distance(
-                    (self.latitude, self.longitude),
-                    radial.azimuth,
-                    self.bin_size * idx as f32 + 1. + self.range_to_first_bin,
-                );
-                radials_equirectangular
-                    .push(([coord_as_i64(coords.0), coord_as_i64(coords.1)], *bin));
-            }
-        }
-        // next, rearrange Vec<DataPoint> into a k-d tree for faster querying
-        let radials_kdmap: kd_tree::KdMap<[i64; 2], f32> =
-            kd_tree::KdMap::build(radials_equirectangular);
-        // finally, sample the radial data into a grid
-        let (mut current_lat, start_lon) =
-            get_point_bearing_distance((self.latitude, self.longitude), 315., 325.2691);
-        let mut coords;
-        let mut samples: GridData = Vec::new();
-        let mut current_sample: kd_tree::ItemAndDistance<DataPoint, i64>;
-        for y in 0..height {
-            // TODO: refactor get_point_bearing_distance such that the latitude and
-            // longitude computations are separate; in these loops, we only need one
-            // or the other at a time, so it would be more efficient to just compute
-            // the one we need, instead of both every time
-            samples.push(Vec::new());
-            coords = (current_lat, start_lon);
-            for x in 0..width {
-                // we use current_lat instead of coords.0 here because get_point_bearing_distance
-                // seems to have some latitude error even when bearing == 90 degrees
-                // but since we know the latitude shouldn't change as we go east, we can just fix its value
-                current_sample = radials_kdmap
-                    .nearest(&[coord_as_i64(current_lat), coord_as_i64(coords.1)])
-                    .unwrap();
-                samples[y].push((
-                    [coord_as_i64(current_lat), coord_as_i64(coords.1)],
-                    match current_sample.squared_distance {
-                        d if d < 100000 => current_sample.item.1,
-                        _ => 0.0,
-                    },
-                ));
-                coords = get_point_bearing_distance(
-                    (current_lat, start_lon),
-                    90.0,
-                    460.0 / (width as f32) * (x as f32),
-                );
-            }
-            current_lat = {
-                let new_start_coords = get_point_bearing_distance(
-                    (current_lat, start_lon),
-                    180.0,
-                    460.0 / (height as f32),
-                );
-                new_start_coords.0
-            };
-        }
-        samples
-    }
-}
-
-type ParseResult<T> = Result<(T, Vec<u8>), String>;
+type ParseResult<'a, T> = Result<(T, &'a [u8]), String>;
 
 /// Pop `n` bytes off the front of `input` and return the two pieces
-fn take_bytes(input: Vec<u8>, n: u16) -> ParseResult<Vec<u8>> {
+fn take_bytes(input: &[u8], n: u16) -> ParseResult<&[u8]> {
     let x = input.split_at(n as usize);
-    Ok((x.0.to_vec(), x.1.to_vec()))
+    Ok((x.0, x.1))
 }
 
 /// Consume one byte from `input` and parse an `i8`
-fn take_i8(input: Vec<u8>) -> ParseResult<i8> {
+fn take_i8(input: &[u8]) -> ParseResult<i8> {
     let (number, tail) = take_bytes(input, 1)?;
     let buf: [u8; 1] = number.try_into().unwrap(); // TODO: handle error
     Ok((i8::from_be_bytes(buf), tail))
 }
 
 /// Consume two bytes from `input` and parse an `i16`
-fn take_i16(input: Vec<u8>) -> ParseResult<i16> {
+fn take_i16(input: &[u8]) -> ParseResult<i16> {
     let (number, tail) = take_bytes(input, 2)?;
     let buf: [u8; 2] = number.try_into().unwrap(); // TODO: handle error
     Ok((i16::from_be_bytes(buf), tail))
 }
 
 /// Consume four bytes from `input` and parse an `i32`
-fn take_i32(input: Vec<u8>) -> ParseResult<i32> {
+fn take_i32(input: &[u8]) -> ParseResult<i32> {
     let (number, tail) = take_bytes(input, 4)?;
     let buf: [u8; 4] = number.try_into().unwrap(); // TODO: handle error
     Ok((i32::from_be_bytes(buf), tail))
 }
 
 /// Consume four bytes from `input` and parse a `u32`
-fn take_u32(input: Vec<u8>) -> ParseResult<u32> {
+fn take_u32(input: &[u8]) -> ParseResult<u32> {
     let (number, tail) = take_bytes(input, 4)?;
     let buf: [u8; 4] = number.try_into().unwrap(); // TODO: handle error
     Ok((u32::from_be_bytes(buf), tail))
@@ -148,11 +72,11 @@ fn take_u32(input: Vec<u8>) -> ParseResult<u32> {
 /// of the string follow, padded with zero bytes to a multiple of four.
 ///
 /// For more information, see [RFC 1832](https://datatracker.ietf.org/doc/html/rfc1832#section-3.11).
-fn take_string(input: Vec<u8>) -> ParseResult<String> {
+fn take_string(input: &[u8]) -> ParseResult<String> {
     let (length, tail) = take_u32(input)?;
     // grab the string
     let (string_bytes, tail) = take_bytes(tail, length as u16)?;
-    let string = match String::from_utf8(string_bytes) {
+    let string = match String::from_utf8(string_bytes.to_vec()) {
         Ok(s) => s,
         Err(e) => return Err(format!("Failed to parse string: {}", e)),
     };
@@ -166,28 +90,28 @@ fn take_string(input: Vec<u8>) -> ParseResult<String> {
 }
 
 /// Consume four bytes from `input` and parse an `f32`
-fn take_float(input: Vec<u8>) -> ParseResult<f32> {
+fn take_float(input: &[u8]) -> ParseResult<f32> {
     let (number, tail) = take_bytes(input, 4)?;
     let buf: [u8; 4] = number.try_into().unwrap(); // TODO: handle error
     Ok((f32::from_be_bytes(buf), tail))
 }
 
-fn text_header(input: Vec<u8>) -> ParseResult<String> {
+fn text_header(input: &[u8]) -> ParseResult<String> {
     let (_, tail) = take_bytes(input, 7)?;
     let (station_code, tail) = take_bytes(tail, 4)?;
     let (_, tail) = take_bytes(tail, 19)?;
-    match String::from_utf8(station_code) {
+    match String::from_utf8(station_code.to_vec()) {
         Ok(s) => Ok((s, tail)),
         Err(e) => Err(format!("Failed to parse station code: {}", e)),
     }
 }
 
-fn message_header(input: Vec<u8>) -> ParseResult<()> {
+fn message_header(input: &[u8]) -> ParseResult<()> {
     let (_, tail) = take_bytes(input, 18)?;
     Ok(((), tail))
 }
 
-fn product_description(input: Vec<u8>) -> ParseResult<(f32, f32, OperationalMode, bool, i32)> {
+fn product_description(input: &[u8]) -> ParseResult<(f32, f32, OperationalMode, bool, i32)> {
     let (_, tail) = take_bytes(input, 2)?;
     let (latitude_int, tail) = take_i32(tail)?;
     let (longitude_int, tail) = take_i32(tail)?;
@@ -216,7 +140,7 @@ fn product_description(input: Vec<u8>) -> ParseResult<(f32, f32, OperationalMode
 }
 
 /// Parse Radial Information Data Structure (Figure E-4)
-fn radial(input: Vec<u8>) -> ParseResult<Radial> {
+fn radial(input: &[u8]) -> ParseResult<Radial> {
     let (azimuth, tail) = take_float(input)?;
     let (elevation, tail) = take_float(tail)?;
     let (width, tail) = take_float(tail)?;
@@ -242,20 +166,9 @@ fn radial(input: Vec<u8>) -> ParseResult<Radial> {
     ))
 }
 
-fn product_symbology(
-    input: Vec<u8>,
-    uncompressed_size: i32,
-) -> ParseResult<(f32, f32, i32, chrono::NaiveDateTime, Vec<Radial>)> {
-    // decompress remaining input, which should all be compressed with bzip2
-    let mut tmp = Vec::with_capacity(uncompressed_size as usize);
-    let mut reader = bzip2_rs::DecoderReader::new(input.as_slice());
-    match std::io::copy(&mut reader, &mut tmp) {
-        Ok(_) => (),
-        Err(e) => return Err(format!("Failed to decompress symbology block: {}", e)),
-    };
-
+fn product_symbology(input: &[u8]) -> ParseResult<(f32, f32, i32, DateTime<Utc>, Vec<Radial>)> {
     // header (Figure 3-6, Sheet 7)
-    let (_, tail) = take_bytes(tmp, 16)?;
+    let (_, tail) = take_bytes(input, 16)?;
 
     // another header (Figure 3-15c)
     let (_, tail) = take_bytes(tail, 8)?;
@@ -287,25 +200,37 @@ fn product_symbology(
         tail = tmp.1;
     }
 
+    let timestamp = match DateTime::from_timestamp(capture_time as i64, 0) {
+        Some(t) => t,
+        None => return Err(format!("Failed to parse timestamp: {}", capture_time)),
+    };
+
     Ok((
         (
             range_to_first_bin / 1000.,
             bin_size / 1000.,
             scan_number,
-            chrono::NaiveDateTime::from_timestamp(capture_time as i64, 0),
+            timestamp,
             radials,
         ),
         tail,
     ))
 }
 
-pub fn parse_dpr(input: Vec<u8>) -> Result<PrecipRate, String> {
+pub fn parse_dpr(input: &[u8]) -> Result<PrecipRate, String> {
     let (station_code, tail) = text_header(input)?;
     let (_, tail) = message_header(tail)?;
     let ((latitude, longitude, operational_mode, precip_detected, uncompressed_size), tail) =
         product_description(tail)?;
+    // decompress remaining input, which should all be compressed with bzip2
+    let mut uncompressed_payload = Vec::with_capacity(uncompressed_size as usize);
+    let mut reader = bzip2_rs::DecoderReader::new(tail);
+    match std::io::copy(&mut reader, &mut uncompressed_payload) {
+        Ok(_) => (),
+        Err(e) => return Err(format!("Failed to decompress symbology block: {}", e)),
+    };
     let ((range_to_first_bin, bin_size, scan_number, capture_time, radials), _) =
-        product_symbology(tail, uncompressed_size)?;
+        product_symbology(&uncompressed_payload)?;
     Ok(PrecipRate {
         station_code,
         capture_time,
