@@ -1,0 +1,8 @@
+[package]
+name = "dpr2geojson"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+digital-precip-rate = { path = "../digital-precip-rate" }
+geojson = "0.24.2"

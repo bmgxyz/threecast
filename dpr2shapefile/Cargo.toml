@@ -1,0 +1,8 @@
+[package]
+name = "dpr2shapefile"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+digital-precip-rate = { path = "../digital-precip-rate" }
+shapefile = "0.6.0"

@@ -1,5 +1,5 @@
 [package]
-name = "threecast"
+name = "digital-precip-rate"
 version = "0.1.0"
 license = "Apache-2.0"
 authors = ["Bradley Gannon <bradley@bradleygannon.com>"]
