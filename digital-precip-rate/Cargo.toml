@@ -8,3 +8,5 @@ edition = "2024"
 [dependencies]
 bzip2-rs = "0.1.2"
 chrono = "0.4.40"
+geo = "0.30.0"
+uom = "0.36.0"

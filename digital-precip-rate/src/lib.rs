@@ -1,4 +1,11 @@
 use chrono::{DateTime, Utc};
+use geo::Point;
+use uom::si::{
+    angle::degree,
+    f32::{Angle, Length, Time, Velocity},
+    length::{inch, meter},
+    time::hour,
+};
 
 #[derive(Debug)]
 pub enum OperationalMode {
@@ -7,25 +14,44 @@ pub enum OperationalMode {
     Precipitation,
 }
 
+impl TryFrom<i16> for OperationalMode {
+    type Error = String;
+
+    fn try_from(value: i16) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(OperationalMode::Maintenance),
+            1 => Ok(OperationalMode::CleanAir),
+            2 => Ok(OperationalMode::Precipitation),
+            v => Err(format!("Invalid operational mode: {}", v)),
+        }
+    }
+}
+
+struct ProductDescription {
+    location: Point<f32>,
+    operational_mode: OperationalMode,
+    precip_detected: bool,
+    uncompressed_size: u32,
+}
+
 #[derive(Debug)]
 pub struct Radial {
-    pub azimuth: f32,
-    pub elevation: f32,
-    pub width: f32,
-    pub precip_rates: Vec<f32>,
+    pub azimuth: Angle,
+    pub elevation: Angle,
+    pub width: Angle,
+    pub precip_rates: Vec<Velocity>,
 }
 
 #[derive(Debug)]
 pub struct PrecipRate {
     pub station_code: String,
     pub capture_time: DateTime<Utc>,
-    pub scan_number: i32,
-    pub latitude: f32,
-    pub longitude: f32,
+    pub scan_number: u8,
+    pub location: Point<f32>,
     pub operational_mode: OperationalMode,
     pub precip_detected: bool,
-    pub bin_size: f32,
-    pub range_to_first_bin: f32,
+    pub bin_size: Length,
+    pub range_to_first_bin: Length,
     pub radials: Vec<Radial>,
 }
 
@@ -111,7 +137,7 @@ fn message_header(input: &[u8]) -> ParseResult<()> {
     Ok(((), tail))
 }
 
-fn product_description(input: &[u8]) -> ParseResult<(f32, f32, OperationalMode, bool, i32)> {
+fn product_description(input: &[u8]) -> ParseResult<ProductDescription> {
     let (_, tail) = take_bytes(input, 2)?;
     let (latitude_int, tail) = take_i32(tail)?;
     let (longitude_int, tail) = take_i32(tail)?;
@@ -122,19 +148,19 @@ fn product_description(input: &[u8]) -> ParseResult<(f32, f32, OperationalMode, 
     let (_, tail) = take_bytes(tail, 43)?;
     let (uncompressed_size, tail) = take_i32(tail)?;
     let (_, tail) = take_bytes(tail, 14)?;
+
+    let location = Point::new(latitude_int as f32 / 1000., longitude_int as f32 / 1000.);
+    let operational_mode = operational_mode_int.try_into()?;
+    let precip_detected = precip_detected_int != 0;
+    let uncompressed_size = uncompressed_size as u32;
+
     Ok((
-        (
-            latitude_int as f32 / 1000.0,
-            longitude_int as f32 / 1000.0,
-            match operational_mode_int {
-                0 => OperationalMode::Maintenance,
-                1 => OperationalMode::CleanAir,
-                2 => OperationalMode::Precipitation,
-                _ => OperationalMode::Maintenance, // TODO: throw error here
-            },
-            !matches!(precip_detected_int, 0),
+        ProductDescription {
+            location,
+            operational_mode,
+            precip_detected,
             uncompressed_size,
-        ),
+        },
         tail,
     ))
 }
@@ -147,26 +173,35 @@ fn radial(input: &[u8]) -> ParseResult<Radial> {
     let (num_bins, tail) = take_i32(tail)?;
     let (_attributes, tail) = take_string(tail)?;
     let (_, tail) = take_bytes(tail, 4)?;
-    let mut precip_rates: Vec<f32> = Vec::with_capacity(num_bins as usize);
+    let mut precip_rates = Vec::with_capacity(num_bins as usize);
     let (precip_rate_bytes, tail) = take_bytes(tail, (num_bins * 4) as u16)?;
     for idx in 0..num_bins {
         let buf: [u8; 2] = precip_rate_bytes[(idx * 4 + 2) as usize..(idx * 4 + 4) as usize]
             .try_into()
             .unwrap();
-        precip_rates.push(u16::from_be_bytes(buf) as f32 / 1000.0);
+        precip_rates
+            .push(Length::new::<inch>(u16::from_be_bytes(buf) as f32) / Time::new::<hour>(1.));
     }
     Ok((
         Radial {
-            azimuth,
-            elevation,
-            width,
+            azimuth: Angle::new::<degree>(azimuth),
+            elevation: Angle::new::<degree>(elevation),
+            width: Angle::new::<degree>(width),
             precip_rates,
         },
         tail,
     ))
 }
 
-fn product_symbology(input: &[u8]) -> ParseResult<(f32, f32, i32, DateTime<Utc>, Vec<Radial>)> {
+struct ProductSymbology {
+    range_to_first_bin: Length,
+    bin_size: Length,
+    scan_number: u8,
+    capture_time: DateTime<Utc>,
+    radials: Vec<Radial>,
+}
+
+fn product_symbology(input: &[u8]) -> ParseResult<ProductSymbology> {
     // header (Figure 3-6, Sheet 7)
     let (_, tail) = take_bytes(input, 16)?;
 
@@ -200,19 +235,22 @@ fn product_symbology(input: &[u8]) -> ParseResult<(f32, f32, i32, DateTime<Utc>,
         tail = tmp.1;
     }
 
-    let timestamp = match DateTime::from_timestamp(capture_time as i64, 0) {
+    let range_to_first_bin = Length::new::<meter>(range_to_first_bin);
+    let bin_size = Length::new::<meter>(bin_size);
+    let scan_number = scan_number as u8;
+    let capture_time = match DateTime::from_timestamp(capture_time as i64, 0) {
         Some(t) => t,
         None => return Err(format!("Failed to parse timestamp: {}", capture_time)),
     };
 
     Ok((
-        (
-            range_to_first_bin / 1000.,
-            bin_size / 1000.,
+        ProductSymbology {
+            range_to_first_bin,
+            bin_size,
             scan_number,
-            timestamp,
+            capture_time,
             radials,
-        ),
+        },
         tail,
     ))
 }
@@ -220,8 +258,15 @@ fn product_symbology(input: &[u8]) -> ParseResult<(f32, f32, i32, DateTime<Utc>,
 pub fn parse_dpr(input: &[u8]) -> Result<PrecipRate, String> {
     let (station_code, tail) = text_header(input)?;
     let (_, tail) = message_header(tail)?;
-    let ((latitude, longitude, operational_mode, precip_detected, uncompressed_size), tail) =
-        product_description(tail)?;
+    let (
+        ProductDescription {
+            location,
+            operational_mode,
+            precip_detected,
+            uncompressed_size,
+        },
+        tail,
+    ) = product_description(tail)?;
     // decompress remaining input, which should all be compressed with bzip2
     let mut uncompressed_payload = Vec::with_capacity(uncompressed_size as usize);
     let mut reader = bzip2_rs::DecoderReader::new(tail);
@@ -229,14 +274,21 @@ pub fn parse_dpr(input: &[u8]) -> Result<PrecipRate, String> {
         Ok(_) => (),
         Err(e) => return Err(format!("Failed to decompress symbology block: {}", e)),
     };
-    let ((range_to_first_bin, bin_size, scan_number, capture_time, radials), _) =
-        product_symbology(&uncompressed_payload)?;
+    let (
+        ProductSymbology {
+            range_to_first_bin,
+            bin_size,
+            scan_number,
+            capture_time,
+            radials,
+        },
+        _,
+    ) = product_symbology(&uncompressed_payload)?;
     Ok(PrecipRate {
         station_code,
         capture_time,
         scan_number,
-        latitude,
-        longitude,
+        location,
         operational_mode,
         precip_detected,
         bin_size,
