@@ -1,3 +1,5 @@
+use std::{array::TryFromSliceError, error::Error, fmt::Display, io, string::FromUtf8Error};
+
 use chrono::{DateTime, Utc};
 use geo::Point;
 use uom::si::{
@@ -15,14 +17,14 @@ pub enum OperationalMode {
 }
 
 impl TryFrom<i16> for OperationalMode {
-    type Error = String;
+    type Error = DprError;
 
     fn try_from(value: i16) -> Result<Self, Self::Error> {
         match value {
             0 => Ok(OperationalMode::Maintenance),
             1 => Ok(OperationalMode::CleanAir),
             2 => Ok(OperationalMode::Precipitation),
-            v => Err(format!("Invalid operational mode: {}", v)),
+            v => Err(DprError::InvalidOperationalMode(v)),
         }
     }
 }
@@ -55,7 +57,7 @@ pub struct PrecipRate {
     pub radials: Vec<Radial>,
 }
 
-type ParseResult<'a, T> = Result<(T, &'a [u8]), String>;
+type ParseResult<'a, T> = Result<(T, &'a [u8]), DprError>;
 
 /// Pop `n` bytes off the front of `input` and return the two pieces
 fn take_bytes(input: &[u8], n: u16) -> ParseResult<&[u8]> {
@@ -66,28 +68,28 @@ fn take_bytes(input: &[u8], n: u16) -> ParseResult<&[u8]> {
 /// Consume one byte from `input` and parse an `i8`
 fn take_i8(input: &[u8]) -> ParseResult<i8> {
     let (number, tail) = take_bytes(input, 1)?;
-    let buf: [u8; 1] = number.try_into().unwrap(); // TODO: handle error
+    let buf: [u8; 1] = number.try_into()?;
     Ok((i8::from_be_bytes(buf), tail))
 }
 
 /// Consume two bytes from `input` and parse an `i16`
 fn take_i16(input: &[u8]) -> ParseResult<i16> {
     let (number, tail) = take_bytes(input, 2)?;
-    let buf: [u8; 2] = number.try_into().unwrap(); // TODO: handle error
+    let buf: [u8; 2] = number.try_into()?;
     Ok((i16::from_be_bytes(buf), tail))
 }
 
 /// Consume four bytes from `input` and parse an `i32`
 fn take_i32(input: &[u8]) -> ParseResult<i32> {
     let (number, tail) = take_bytes(input, 4)?;
-    let buf: [u8; 4] = number.try_into().unwrap(); // TODO: handle error
+    let buf: [u8; 4] = number.try_into()?;
     Ok((i32::from_be_bytes(buf), tail))
 }
 
 /// Consume four bytes from `input` and parse a `u32`
 fn take_u32(input: &[u8]) -> ParseResult<u32> {
     let (number, tail) = take_bytes(input, 4)?;
-    let buf: [u8; 4] = number.try_into().unwrap(); // TODO: handle error
+    let buf: [u8; 4] = number.try_into()?;
     Ok((u32::from_be_bytes(buf), tail))
 }
 
@@ -102,10 +104,7 @@ fn take_string(input: &[u8]) -> ParseResult<String> {
     let (length, tail) = take_u32(input)?;
     // grab the string
     let (string_bytes, tail) = take_bytes(tail, length as u16)?;
-    let string = match String::from_utf8(string_bytes.to_vec()) {
-        Ok(s) => s,
-        Err(e) => return Err(format!("Failed to parse string: {}", e)),
-    };
+    let string = String::from_utf8(string_bytes.to_vec())?;
     // pad out to the next four-byte boundary if needed
     if length % 4 != 0 {
         let (_, tail) = take_bytes(tail, 4 - (length % 4) as u16)?;
@@ -118,7 +117,7 @@ fn take_string(input: &[u8]) -> ParseResult<String> {
 /// Consume four bytes from `input` and parse an `f32`
 fn take_float(input: &[u8]) -> ParseResult<f32> {
     let (number, tail) = take_bytes(input, 4)?;
-    let buf: [u8; 4] = number.try_into().unwrap(); // TODO: handle error
+    let buf: [u8; 4] = number.try_into()?;
     Ok((f32::from_be_bytes(buf), tail))
 }
 
@@ -128,7 +127,7 @@ fn text_header(input: &[u8]) -> ParseResult<String> {
     let (_, tail) = take_bytes(tail, 19)?;
     match String::from_utf8(station_code.to_vec()) {
         Ok(s) => Ok((s, tail)),
-        Err(e) => Err(format!("Failed to parse station code: {}", e)),
+        Err(e) => Err(e.into()),
     }
 }
 
@@ -240,7 +239,7 @@ fn product_symbology(input: &[u8]) -> ParseResult<ProductSymbology> {
     let scan_number = scan_number as u8;
     let capture_time = match DateTime::from_timestamp(capture_time as i64, 0) {
         Some(t) => t,
-        None => return Err(format!("Failed to parse timestamp: {}", capture_time)),
+        None => return Err(DprError::InvalidCaptureTime(capture_time)),
     };
 
     Ok((
@@ -255,7 +254,56 @@ fn product_symbology(input: &[u8]) -> ParseResult<ProductSymbology> {
     ))
 }
 
-pub fn parse_dpr(input: &[u8]) -> Result<PrecipRate, String> {
+#[derive(Debug)]
+pub enum DprError {
+    InvalidOperationalMode(i16),
+    InvalidCaptureTime(u32),
+    DecompressionFailed(io::Error),
+    InvalidUtf8String(FromUtf8Error),
+    InvalidByteSlice(TryFromSliceError),
+}
+
+impl Display for DprError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            DprError::InvalidOperationalMode(o) => write!(
+                f,
+                "Failed to parse operational mode: expected 0, 1, or 2, but got {}",
+                o
+            ),
+            DprError::InvalidCaptureTime(t) => {
+                write!(f, "Failed to parse capture time: 0x{:02x}", t)
+            }
+            DprError::DecompressionFailed(d) => {
+                write!(f, "Failed to decompress product symbology: {}", d)
+            }
+            DprError::InvalidUtf8String(u) => write!(f, "Failed to parse UTF-8 string: {}", u),
+            DprError::InvalidByteSlice(s) => write!(f, "Failed to parse byte slice: {}", s),
+        }
+    }
+}
+
+impl Error for DprError {}
+
+impl From<TryFromSliceError> for DprError {
+    fn from(value: TryFromSliceError) -> Self {
+        DprError::InvalidByteSlice(value)
+    }
+}
+
+impl From<FromUtf8Error> for DprError {
+    fn from(value: FromUtf8Error) -> Self {
+        DprError::InvalidUtf8String(value)
+    }
+}
+
+impl From<io::Error> for DprError {
+    fn from(value: io::Error) -> Self {
+        DprError::DecompressionFailed(value)
+    }
+}
+
+pub fn parse_dpr(input: &[u8]) -> Result<PrecipRate, DprError> {
     let (station_code, tail) = text_header(input)?;
     let (_, tail) = message_header(tail)?;
     let (
@@ -270,10 +318,7 @@ pub fn parse_dpr(input: &[u8]) -> Result<PrecipRate, String> {
     // decompress remaining input, which should all be compressed with bzip2
     let mut uncompressed_payload = Vec::with_capacity(uncompressed_size as usize);
     let mut reader = bzip2_rs::DecoderReader::new(tail);
-    match std::io::copy(&mut reader, &mut uncompressed_payload) {
-        Ok(_) => (),
-        Err(e) => return Err(format!("Failed to decompress symbology block: {}", e)),
-    };
+    io::copy(&mut reader, &mut uncompressed_payload)?;
     let (
         ProductSymbology {
             range_to_first_bin,
