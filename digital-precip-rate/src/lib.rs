@@ -1,4 +1,11 @@
-use std::{array::TryFromSliceError, error::Error, fmt::Display, io, string::FromUtf8Error};
+use std::{
+    array::TryFromSliceError,
+    error::Error,
+    fmt::{Debug, Display},
+    io,
+    ops::RangeInclusive,
+    string::FromUtf8Error,
+};
 
 use chrono::{DateTime, Utc};
 use geo::Point;
@@ -24,7 +31,10 @@ impl TryFrom<i16> for OperationalMode {
             0 => Ok(OperationalMode::Maintenance),
             1 => Ok(OperationalMode::CleanAir),
             2 => Ok(OperationalMode::Precipitation),
-            v => Err(DprError::InvalidOperationalMode(v)),
+            v => Err(DprError::ValueOutOfRange(format!(
+                "operational mode: got {v}, expected {:?}",
+                ProductDescription::OPERATIONAL_MODE_RANGE
+            ))),
         }
     }
 }
@@ -36,12 +46,47 @@ struct ProductDescription {
     uncompressed_size: u32,
 }
 
+impl ProductDescription {
+    const NAME: &'static str = "product description block";
+    const BLOCK_DIVIDER_VALUE: i16 = -1;
+    const LATITUDE_RANGE: RangeInclusive<i32> = -90_000..=90_000;
+    const LONGITUDE_RANGE: RangeInclusive<i32> = -180_000..=180_000;
+    const OPERATIONAL_MODE_RANGE: RangeInclusive<i16> = 0..=2;
+    const PRECIP_DETECTED_RANGE: RangeInclusive<i8> = 0..=1;
+}
+
+struct ProductSymbology {
+    range_to_first_bin: Length,
+    bin_size: Length,
+    scan_number: u8,
+    capture_time: DateTime<Utc>,
+    radials: Vec<Radial>,
+}
+
+impl ProductSymbology {
+    const NAME: &'static str = "product symbology";
+    const SCAN_NUMBER_RANGE: RangeInclusive<i32> = 1..=80;
+    const RADIAL_COMPONENT_TYPE_VALUE: i32 = 1;
+    const BIN_SIZE_RANGE: RangeInclusive<f32> = (0.)..=1000.;
+    // It seems like the specified range may be incorrect for actual DPR files
+    // const RANGE_TO_FIRST_BIN_RANGE: RangeInclusive<f32> = (1000.)..=460000.;
+    const NUM_RADIALS_RANGE: RangeInclusive<i32> = 0..=800;
+}
+
 #[derive(Debug)]
 pub struct Radial {
     pub azimuth: Angle,
     pub elevation: Angle,
     pub width: Angle,
     pub precip_rates: Vec<Velocity>,
+}
+
+impl Radial {
+    const NAME: &'static str = "radial";
+    const AZIMUTH_RANGE: RangeInclusive<f32> = (0.)..=360.;
+    const ELEVATION_RANGE: RangeInclusive<f32> = (-1.)..=45.;
+    const WIDTH_RANGE: RangeInclusive<f32> = (0.)..=2.;
+    const NUM_BINS_RANGE: RangeInclusive<i32> = 0..=1840;
 }
 
 #[derive(Debug)]
@@ -55,6 +100,89 @@ pub struct PrecipRate {
     pub bin_size: Length,
     pub range_to_first_bin: Length,
     pub radials: Vec<Radial>,
+}
+
+#[derive(Debug)]
+pub enum DprError {
+    InvalidOperationalMode(i16),
+    InvalidCaptureTime(u32),
+    DecompressionFailed(io::Error),
+    InvalidUtf8String(FromUtf8Error),
+    InvalidByteSlice(TryFromSliceError),
+    ValueOutOfRange(String),
+    Unsupported(String),
+}
+
+impl Display for DprError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            DprError::InvalidOperationalMode(o) => write!(
+                f,
+                "Failed to parse operational mode: expected 0, 1, or 2, but got {}",
+                o
+            ),
+            DprError::InvalidCaptureTime(t) => {
+                write!(f, "Failed to parse capture time: 0x{:02x}", t)
+            }
+            DprError::DecompressionFailed(d) => {
+                write!(f, "Failed to decompress product symbology: {}", d)
+            }
+            DprError::InvalidUtf8String(u) => write!(f, "Failed to parse UTF-8 string: {}", u),
+            DprError::InvalidByteSlice(s) => write!(f, "Failed to parse byte slice: {}", s),
+            DprError::ValueOutOfRange(s) => write!(f, "Value out of specified range: {}", s),
+            DprError::Unsupported(s) => write!(f, "{}", s),
+        }
+    }
+}
+
+impl Error for DprError {}
+
+impl From<TryFromSliceError> for DprError {
+    fn from(value: TryFromSliceError) -> Self {
+        DprError::InvalidByteSlice(value)
+    }
+}
+
+impl From<FromUtf8Error> for DprError {
+    fn from(value: FromUtf8Error) -> Self {
+        DprError::InvalidUtf8String(value)
+    }
+}
+
+impl From<io::Error> for DprError {
+    fn from(value: io::Error) -> Self {
+        DprError::DecompressionFailed(value)
+    }
+}
+
+fn check_value<T: Display + PartialEq>(
+    expected: T,
+    actual: T,
+    name: &str,
+    func: &str,
+) -> Result<(), DprError> {
+    if expected != actual {
+        Err(DprError::ValueOutOfRange(format!(
+            "{name} in {func}: got {actual}, expected {expected}"
+        )))
+    } else {
+        Ok(())
+    }
+}
+
+fn check_range_inclusive<T: Debug + Display + PartialOrd>(
+    expected: RangeInclusive<T>,
+    actual: T,
+    name: &str,
+    func: &str,
+) -> Result<(), DprError> {
+    if !expected.contains(&actual) {
+        Err(DprError::ValueOutOfRange(format!(
+            "{name} in {func}: got {actual}, expected {expected:?}"
+        )))
+    } else {
+        Ok(())
+    }
 }
 
 type ParseResult<'a, T> = Result<(T, &'a [u8]), DprError>;
@@ -136,14 +264,54 @@ fn message_header(input: &[u8]) -> ParseResult<()> {
     Ok(((), tail))
 }
 
+/// Parse Product Description
+///
+/// Figure 3-6: Graphic Product Message (Sheet 6) and Table V
 fn product_description(input: &[u8]) -> ParseResult<ProductDescription> {
-    let (_, tail) = take_bytes(input, 2)?;
+    let (block_divider, tail) = take_i16(input)?;
+    check_value(
+        ProductDescription::BLOCK_DIVIDER_VALUE,
+        block_divider,
+        "block divider",
+        ProductDescription::NAME,
+    )?;
+
     let (latitude_int, tail) = take_i32(tail)?;
+    check_range_inclusive(
+        ProductDescription::LATITUDE_RANGE,
+        latitude_int,
+        "latitude",
+        ProductDescription::NAME,
+    )?;
+
     let (longitude_int, tail) = take_i32(tail)?;
+    check_range_inclusive(
+        ProductDescription::LONGITUDE_RANGE,
+        longitude_int,
+        "longitude",
+        ProductDescription::NAME,
+    )?;
+
     let (_, tail) = take_bytes(tail, 4)?;
+
     let (operational_mode_int, tail) = take_i16(tail)?;
+    check_range_inclusive(
+        ProductDescription::OPERATIONAL_MODE_RANGE,
+        operational_mode_int,
+        "operational mode",
+        ProductDescription::NAME,
+    )?;
+
     let (_, tail) = take_bytes(tail, 24)?;
+
     let (precip_detected_int, tail) = take_i8(tail)?;
+    check_range_inclusive(
+        ProductDescription::PRECIP_DETECTED_RANGE,
+        precip_detected_int,
+        "precipitation detected",
+        ProductDescription::NAME,
+    )?;
+
     let (_, tail) = take_bytes(tail, 43)?;
     let (uncompressed_size, tail) = take_i32(tail)?;
     let (_, tail) = take_bytes(tail, 14)?;
@@ -164,42 +332,6 @@ fn product_description(input: &[u8]) -> ParseResult<ProductDescription> {
     ))
 }
 
-/// Parse Radial Information Data Structure (Figure E-4)
-fn radial(input: &[u8]) -> ParseResult<Radial> {
-    let (azimuth, tail) = take_float(input)?;
-    let (elevation, tail) = take_float(tail)?;
-    let (width, tail) = take_float(tail)?;
-    let (num_bins, tail) = take_i32(tail)?;
-    let (_attributes, tail) = take_string(tail)?;
-    let (_, tail) = take_bytes(tail, 4)?;
-    let mut precip_rates = Vec::with_capacity(num_bins as usize);
-    let (precip_rate_bytes, tail) = take_bytes(tail, (num_bins * 4) as u16)?;
-    for idx in 0..num_bins {
-        let buf: [u8; 2] = precip_rate_bytes[(idx * 4 + 2) as usize..(idx * 4 + 4) as usize]
-            .try_into()
-            .unwrap();
-        precip_rates
-            .push(Length::new::<inch>(u16::from_be_bytes(buf) as f32) / Time::new::<hour>(1.));
-    }
-    Ok((
-        Radial {
-            azimuth: Angle::new::<degree>(azimuth),
-            elevation: Angle::new::<degree>(elevation),
-            width: Angle::new::<degree>(width),
-            precip_rates,
-        },
-        tail,
-    ))
-}
-
-struct ProductSymbology {
-    range_to_first_bin: Length,
-    bin_size: Length,
-    scan_number: u8,
-    capture_time: DateTime<Utc>,
-    radials: Vec<Radial>,
-}
-
 fn product_symbology(input: &[u8]) -> ParseResult<ProductSymbology> {
     // header (Figure 3-6, Sheet 7)
     let (_, tail) = take_bytes(input, 16)?;
@@ -213,18 +345,50 @@ fn product_symbology(input: &[u8]) -> ParseResult<ProductSymbology> {
     let (_, tail) = take_bytes(tail, 12)?;
     let (_, tail) = take_string(tail)?; // radar name
     let (_, tail) = take_bytes(tail, 12)?;
-    let (capture_time, tail) = take_u32(tail)?;
+    let (capture_time, tail) = take_u32(tail)?; // volume scan start time
     let (_, tail) = take_bytes(tail, 8)?;
     let (scan_number, tail) = take_i32(tail)?;
-    let (_, tail) = take_bytes(tail, 36)?;
+    check_range_inclusive(
+        ProductSymbology::SCAN_NUMBER_RANGE,
+        scan_number,
+        "scan number",
+        ProductSymbology::NAME,
+    )?;
+    let (_, tail) = take_bytes(tail, 24)?;
+    let (number_of_components, tail) = take_i32(tail)?;
+    if number_of_components != 1 {
+        return Err(DprError::Unsupported(format!(
+            "found number of components in product symbology not equal to 1 (got {}); DPR files containing multiple components are not supported",
+            number_of_components
+        )));
+    }
+    let (_, tail) = take_bytes(tail, (number_of_components * 8) as u16)?;
 
     // Radial Component Data Structure (Figure E-3)
-    let (_, tail) = take_bytes(tail, 4)?;
+    let (radial_component_type, tail) = take_i32(tail)?;
+    check_value(
+        ProductSymbology::RADIAL_COMPONENT_TYPE_VALUE,
+        radial_component_type,
+        "radial component type",
+        ProductSymbology::NAME,
+    )?;
     let (_, tail) = take_string(tail)?; // description
     let (bin_size, tail) = take_float(tail)?;
+    check_range_inclusive(
+        ProductSymbology::BIN_SIZE_RANGE,
+        bin_size,
+        "bin size",
+        ProductSymbology::NAME,
+    )?;
     let (range_to_first_bin, tail) = take_float(tail)?;
     let (_, tail) = take_bytes(tail, 8)?;
     let (num_radials, mut tail) = take_i32(tail)?;
+    check_range_inclusive(
+        ProductSymbology::NUM_RADIALS_RANGE,
+        num_radials,
+        "num radials",
+        ProductSymbology::NAME,
+    )?;
 
     // parse the radials themselves
     let mut radials: Vec<Radial> = Vec::with_capacity(num_radials as usize);
@@ -254,58 +418,52 @@ fn product_symbology(input: &[u8]) -> ParseResult<ProductSymbology> {
     ))
 }
 
-#[derive(Debug)]
-pub enum DprError {
-    InvalidOperationalMode(i16),
-    InvalidCaptureTime(u32),
-    DecompressionFailed(io::Error),
-    InvalidUtf8String(FromUtf8Error),
-    InvalidByteSlice(TryFromSliceError),
-}
+/// Parse Radial Information Data Structure (Figure E-4)
+fn radial(input: &[u8]) -> ParseResult<Radial> {
+    let (azimuth, tail) = take_float(input)?;
+    check_range_inclusive(Radial::AZIMUTH_RANGE, azimuth, "azimuth", Radial::NAME)?;
 
-impl Display for DprError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            DprError::InvalidOperationalMode(o) => write!(
-                f,
-                "Failed to parse operational mode: expected 0, 1, or 2, but got {}",
-                o
-            ),
-            DprError::InvalidCaptureTime(t) => {
-                write!(f, "Failed to parse capture time: 0x{:02x}", t)
-            }
-            DprError::DecompressionFailed(d) => {
-                write!(f, "Failed to decompress product symbology: {}", d)
-            }
-            DprError::InvalidUtf8String(u) => write!(f, "Failed to parse UTF-8 string: {}", u),
-            DprError::InvalidByteSlice(s) => write!(f, "Failed to parse byte slice: {}", s),
-        }
+    let (elevation, tail) = take_float(tail)?;
+    check_range_inclusive(
+        Radial::ELEVATION_RANGE,
+        elevation,
+        "elevation",
+        Radial::NAME,
+    )?;
+
+    let (width, tail) = take_float(tail)?;
+    check_range_inclusive(Radial::WIDTH_RANGE, width, "width", Radial::NAME)?;
+
+    let (num_bins, tail) = take_i32(tail)?;
+    check_range_inclusive(Radial::NUM_BINS_RANGE, num_bins, "num bins", Radial::NAME)?;
+
+    let (_attributes, tail) = take_string(tail)?;
+    let (_, tail) = take_bytes(tail, 4)?;
+    let mut precip_rates = Vec::with_capacity(num_bins as usize);
+    let (precip_rate_bytes, tail) = take_bytes(tail, (num_bins * 4) as u16)?;
+    for idx in 0..num_bins {
+        let buf: [u8; 2] = precip_rate_bytes[(idx * 4 + 2) as usize..(idx * 4 + 4) as usize]
+            .try_into()
+            .unwrap();
+        precip_rates.push(
+            Length::new::<inch>(u16::from_be_bytes(buf) as f32 / 1000.) / Time::new::<hour>(1.),
+        );
     }
-}
-
-impl Error for DprError {}
-
-impl From<TryFromSliceError> for DprError {
-    fn from(value: TryFromSliceError) -> Self {
-        DprError::InvalidByteSlice(value)
-    }
-}
-
-impl From<FromUtf8Error> for DprError {
-    fn from(value: FromUtf8Error) -> Self {
-        DprError::InvalidUtf8String(value)
-    }
-}
-
-impl From<io::Error> for DprError {
-    fn from(value: io::Error) -> Self {
-        DprError::DecompressionFailed(value)
-    }
+    Ok((
+        Radial {
+            azimuth: Angle::new::<degree>(azimuth),
+            elevation: Angle::new::<degree>(elevation),
+            width: Angle::new::<degree>(width),
+            precip_rates,
+        },
+        tail,
+    ))
 }
 
 pub fn parse_dpr(input: &[u8]) -> Result<PrecipRate, DprError> {
     let (station_code, tail) = text_header(input)?;
     let (_, tail) = message_header(tail)?;
+
     let (
         ProductDescription {
             location,
@@ -315,10 +473,12 @@ pub fn parse_dpr(input: &[u8]) -> Result<PrecipRate, DprError> {
         },
         tail,
     ) = product_description(tail)?;
+
     // decompress remaining input, which should all be compressed with bzip2
     let mut uncompressed_payload = Vec::with_capacity(uncompressed_size as usize);
     let mut reader = bzip2_rs::DecoderReader::new(tail);
     io::copy(&mut reader, &mut uncompressed_payload)?;
+
     let (
         ProductSymbology {
             range_to_first_bin,
@@ -329,6 +489,7 @@ pub fn parse_dpr(input: &[u8]) -> Result<PrecipRate, DprError> {
         },
         _,
     ) = product_symbology(&uncompressed_payload)?;
+
     Ok(PrecipRate {
         station_code,
         capture_time,
