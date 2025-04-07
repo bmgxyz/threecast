@@ -1,11 +1,18 @@
 use std::io;
 
 use chrono::{DateTime, Utc};
-use geo::Point;
+use geo::{Destination, Haversine, Point, Polygon, polygon};
 use product_description::{OperationalMode, ProductDescription};
 use product_symbology::ProductSymbology;
 use radials::Radial;
-use uom::si::f32::Length;
+use uom::si::{
+    angle::degree,
+    f32::{Length, Velocity},
+    length::meter,
+};
+
+#[macro_use]
+extern crate uom;
 
 mod error;
 mod product_description;
@@ -25,12 +32,105 @@ pub struct PrecipRate {
     pub station_code: String,
     pub capture_time: DateTime<Utc>,
     pub scan_number: u8,
+    /// Longitude/latitude coordinates of the radar station in degrees
+    ///
+    /// Note that the coordinates are reversed from the perhaps more typical latitude/longitude.
+    /// This is to match the underlying convention of the `geo` crate, which ensures that the first
+    /// coordinate `x` maps to the horizontal value (longitude) and the second coordinate `y` maps
+    /// to the vertical value (latitude).
     pub location: Point<f32>,
     pub operational_mode: OperationalMode,
     pub precip_detected: bool,
     pub bin_size: Length,
     pub range_to_first_bin: Length,
     pub radials: Vec<Radial>,
+}
+
+unit! {
+    system: uom::si;
+    quantity: uom::si::velocity;
+
+    @inch_per_hour: 0.09144; "in/hr", "inch per hour", "inches per hour";
+}
+
+impl From<PrecipRate> for Vec<(Polygon<f32>, Velocity)> {
+    fn from(value: PrecipRate) -> Self {
+        let PrecipRate {
+            location,
+            bin_size,
+            range_to_first_bin,
+            radials,
+            ..
+        } = value;
+        let origin = location;
+        let mut bins = vec![];
+        for radial in radials {
+            let Radial {
+                azimuth,
+                width,
+                precip_rates,
+                ..
+            } = radial;
+            for (bin_idx, precip_rate) in precip_rates.into_iter().enumerate() {
+                let center_azimuth = azimuth;
+                let center_inner = Haversine.destination(
+                    origin,
+                    center_azimuth.get::<degree>(),
+                    range_to_first_bin.get::<meter>()
+                        + bin_size.get::<meter>() * (bin_idx as f32 - 0.5),
+                );
+                let center_outer = Haversine.destination(
+                    origin,
+                    center_azimuth.get::<degree>(),
+                    range_to_first_bin.get::<meter>()
+                        + bin_size.get::<meter>() * (bin_idx as f32 + 0.5),
+                );
+
+                let left_azimuth = center_azimuth - width / 2.;
+                let left_inner = Haversine.destination(
+                    origin,
+                    left_azimuth.get::<degree>(),
+                    range_to_first_bin.get::<meter>()
+                        + bin_size.get::<meter>() * (bin_idx as f32 - 0.5),
+                );
+                let left_outer = Haversine.destination(
+                    origin,
+                    left_azimuth.get::<degree>(),
+                    range_to_first_bin.get::<meter>()
+                        + bin_size.get::<meter>() * (bin_idx as f32 + 0.5),
+                );
+
+                let right_azimuth = center_azimuth + width / 2.;
+                let right_inner = Haversine.destination(
+                    origin,
+                    right_azimuth.get::<degree>(),
+                    range_to_first_bin.get::<meter>()
+                        + bin_size.get::<meter>() * (bin_idx as f32 - 0.5),
+                );
+                let right_outer = Haversine.destination(
+                    origin,
+                    right_azimuth.get::<degree>(),
+                    range_to_first_bin.get::<meter>()
+                        + bin_size.get::<meter>() * (bin_idx as f32 + 0.5),
+                );
+
+                let bin_shape = if center_inner == right_inner || center_inner == left_inner {
+                    polygon!(center_inner.into(), right_outer.into(), left_outer.into(),)
+                } else {
+                    polygon!(
+                        center_inner.into(),
+                        right_inner.into(),
+                        right_outer.into(),
+                        center_outer.into(),
+                        left_outer.into(),
+                        left_inner.into()
+                    )
+                };
+                bins.push((bin_shape, precip_rate));
+            }
+        }
+        bins
+    }
 }
 
 fn text_header(input: &[u8]) -> ParseResult<String> {

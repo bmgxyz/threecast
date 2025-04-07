@@ -2,12 +2,10 @@ use std::ops::RangeInclusive;
 
 use uom::si::{
     angle::degree,
-    f32::{Angle, Length, Time, Velocity},
-    length::inch,
-    time::hour,
+    f32::{Angle, Velocity},
 };
 
-use crate::{ParseResult, utils::*};
+use crate::{ParseResult, inch_per_hour, utils::*};
 
 #[derive(Debug)]
 pub struct Radial {
@@ -52,9 +50,9 @@ pub(crate) fn radial(input: &[u8]) -> ParseResult<Radial> {
         let buf: [u8; 2] = precip_rate_bytes[(idx * 4 + 2) as usize..(idx * 4 + 4) as usize]
             .try_into()
             .unwrap();
-        precip_rates.push(
-            Length::new::<inch>(u16::from_be_bytes(buf) as f32 / 1000.) / Time::new::<hour>(1.),
-        );
+        precip_rates.push(Velocity::new::<inch_per_hour>(
+            u16::from_be_bytes(buf) as f32 / 1000.,
+        ));
     }
     Ok((
         Radial {
