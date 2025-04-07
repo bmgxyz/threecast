@@ -95,7 +95,7 @@ pub(crate) fn product_description(input: &[u8]) -> ParseResult<ProductDescriptio
     let (uncompressed_size, tail) = take_i32(tail)?;
     let (_, tail) = take_bytes(tail, 14)?;
 
-    let location = Point::new(latitude_int as f32 / 1000., longitude_int as f32 / 1000.);
+    let location = Point::new(longitude_int as f32 / 1000., latitude_int as f32 / 1000.);
     let operational_mode = operational_mode_int.try_into()?;
     let precip_detected = precip_detected_int != 0;
     let uncompressed_size = uncompressed_size as u32;
