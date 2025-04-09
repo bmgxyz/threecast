@@ -4,7 +4,6 @@ use chrono::{DateTime, Utc};
 use geo::{Destination, Haversine, Point, Polygon, polygon};
 use product_description::{OperationalMode, ProductDescription};
 use product_symbology::ProductSymbology;
-use radials::Radial;
 use uom::si::{
     angle::degree,
     f32::{Length, Velocity},
@@ -23,6 +22,7 @@ mod utils;
 pub use error::DprError;
 use product_description::product_description;
 use product_symbology::product_symbology;
+pub use radials::Radial;
 use utils::*;
 
 pub type ParseResult<'a, T> = Result<(T, &'a [u8]), DprError>;
