@@ -41,6 +41,7 @@ pub struct PrecipRate {
     pub location: Point<f32>,
     pub operational_mode: OperationalMode,
     pub precip_detected: bool,
+    pub max_precip_rate: Velocity,
     pub bin_size: Length,
     pub range_to_first_bin: Length,
     pub radials: Vec<Radial>,
@@ -138,24 +139,29 @@ impl PrecipRate {
 
 impl Display for PrecipRate {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln!(f, "Station Code:            {}", self.station_code)?;
-        writeln!(f, "Capture Time:            {}", self.capture_time)?;
-        writeln!(f, "Operational Mode:        {}", self.operational_mode)?;
-        writeln!(f, "Scan Number:             {}", self.scan_number)?;
+        writeln!(f, "Station Code:        {}", self.station_code)?;
+        writeln!(f, "Capture Time:        {}", self.capture_time)?;
+        writeln!(f, "Operational Mode:    {}", self.operational_mode)?;
         writeln!(
             f,
-            "Precipitation Detected:  {}",
+            "Precip Detected:     {}",
             if self.precip_detected { "Yes" } else { "No" }
         )?;
+        writeln!(f, "Scan Number:         {}", self.scan_number)?;
         writeln!(
             f,
-            "Bin Size:                {: >3} m",
+            "Max Precip Rate:     {} in/hr",
+            self.max_precip_rate.get::<inch_per_hour>()
+        )?;
+        writeln!(
+            f,
+            "Bin Size:            {: >3} m",
             self.bin_size.get::<meter>()
         )?;
-        writeln!(f, "Number of Radials:      {: >4}", self.radials.len())?;
+        writeln!(f, "Number of Radials:  {: >4}", self.radials.len())?;
         write!(
             f,
-            "Range to First Bin:      {: >3} m",
+            "Range to First Bin:  {: >3} m",
             self.range_to_first_bin.get::<meter>()
         )
     }
@@ -185,6 +191,7 @@ pub fn parse_dpr(input: &[u8]) -> Result<PrecipRate, DprError> {
             location,
             operational_mode,
             precip_detected,
+            max_precip_rate,
             uncompressed_size,
         },
         tail,
@@ -213,6 +220,7 @@ pub fn parse_dpr(input: &[u8]) -> Result<PrecipRate, DprError> {
         location,
         operational_mode,
         precip_detected,
+        max_precip_rate,
         bin_size,
         range_to_first_bin,
         radials,

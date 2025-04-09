@@ -1,8 +1,9 @@
 use std::{fmt::Display, ops::RangeInclusive};
 
 use geo::Point;
+use uom::si::f32::Velocity;
 
-use crate::{DprError, ParseResult, utils::*};
+use crate::{DprError, ParseResult, inch_per_hour, utils::*};
 
 #[derive(Debug)]
 pub enum OperationalMode {
@@ -41,6 +42,7 @@ pub(crate) struct ProductDescription {
     pub(crate) location: Point<f32>,
     pub(crate) operational_mode: OperationalMode,
     pub(crate) precip_detected: bool,
+    pub(crate) max_precip_rate: Velocity,
     pub(crate) uncompressed_size: u32,
 }
 
@@ -101,13 +103,16 @@ pub(crate) fn product_description(input: &[u8]) -> ParseResult<ProductDescriptio
         ProductDescription::NAME,
     )?;
 
-    let (_, tail) = take_bytes(tail, 43)?;
+    let (_, tail) = take_bytes(tail, 33)?;
+    let (max_precip_rate, tail) = take_i16(tail)?;
+    let (_, tail) = take_bytes(tail, 8)?;
     let (uncompressed_size, tail) = take_i32(tail)?;
     let (_, tail) = take_bytes(tail, 14)?;
 
     let location = Point::new(longitude_int as f32 / 1000., latitude_int as f32 / 1000.);
     let operational_mode = operational_mode_int.try_into()?;
     let precip_detected = precip_detected_int != 0;
+    let max_precip_rate = Velocity::new::<inch_per_hour>(max_precip_rate as f32 / 1000.);
     let uncompressed_size = uncompressed_size as u32;
 
     Ok((
@@ -115,6 +120,7 @@ pub(crate) fn product_description(input: &[u8]) -> ParseResult<ProductDescriptio
             location,
             operational_mode,
             precip_detected,
+            max_precip_rate,
             uncompressed_size,
         },
         tail,
