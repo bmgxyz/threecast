@@ -1,4 +1,4 @@
-use std::ops::RangeInclusive;
+use std::{fmt::Display, ops::RangeInclusive};
 
 use geo::Point;
 
@@ -9,6 +9,16 @@ pub enum OperationalMode {
     Maintenance,
     CleanAir,
     Precipitation,
+}
+
+impl Display for OperationalMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            OperationalMode::CleanAir => write!(f, "Clean Air"),
+            OperationalMode::Maintenance => write!(f, "Maintenance"),
+            OperationalMode::Precipitation => write!(f, "Precipitation"),
+        }
+    }
 }
 
 impl TryFrom<i16> for OperationalMode {

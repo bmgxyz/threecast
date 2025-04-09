@@ -1,4 +1,4 @@
-use std::io;
+use std::{fmt::Display, io};
 
 use chrono::{DateTime, Utc};
 use geo::{Destination, Haversine, Point, Polygon, polygon};
@@ -53,15 +53,15 @@ unit! {
     @inch_per_hour: 0.09144; "in/hr", "inch per hour", "inches per hour";
 }
 
-impl From<PrecipRate> for Vec<(Polygon<f32>, Velocity)> {
-    fn from(value: PrecipRate) -> Self {
+impl PrecipRate {
+    pub fn to_polygons(self, skip_zeros: bool) -> Vec<(Polygon<f32>, Velocity)> {
         let PrecipRate {
             location,
             bin_size,
             range_to_first_bin,
             radials,
             ..
-        } = value;
+        } = self;
         let origin = location;
         let mut bins = vec![];
         for radial in radials {
@@ -72,6 +72,9 @@ impl From<PrecipRate> for Vec<(Polygon<f32>, Velocity)> {
                 ..
             } = radial;
             for (bin_idx, precip_rate) in precip_rates.into_iter().enumerate() {
+                if skip_zeros && precip_rate.get::<inch_per_hour>() == 0. {
+                    continue;
+                }
                 let center_azimuth = azimuth;
                 let center_inner = Haversine.destination(
                     origin,
@@ -130,6 +133,31 @@ impl From<PrecipRate> for Vec<(Polygon<f32>, Velocity)> {
             }
         }
         bins
+    }
+}
+
+impl Display for PrecipRate {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Station Code:            {}\n", self.station_code)?;
+        write!(f, "Capture Time:            {}\n", self.capture_time)?;
+        write!(f, "Operational Mode:        {}\n", self.operational_mode)?;
+        write!(f, "Scan Number:             {: >2}\n", self.scan_number)?;
+        write!(
+            f,
+            "Precipitation Detected:  {}\n",
+            if self.precip_detected { "Yes" } else { "No" }
+        )?;
+        write!(
+            f,
+            "Bin Size:                {: >3} m\n",
+            self.bin_size.get::<meter>()
+        )?;
+        write!(f, "Number of Radials:      {: >4}\n", self.radials.len())?;
+        write!(
+            f,
+            "Range to First Bin:      {: >3} m",
+            self.range_to_first_bin.get::<meter>()
+        )
     }
 }
 
