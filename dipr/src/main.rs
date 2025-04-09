@@ -70,7 +70,8 @@ enum Action {
         /// When producing the Shapefile output, don't include bins with zero precipitation
         #[arg(long)]
         skip_zeros: bool,
-        /// Path to the output Shapefile; e.g., /path/to/foo becomes /path/to/foo{.shp,.shx,.dbf}
+        /// Path to the output Shapefile; e.g., /path/to/foo.shp becomes
+        /// /path/to/foo{.shp,.shx,.dbf}
         output: String,
     },
 }
@@ -83,7 +84,7 @@ fn convert_to_shapefile(
     const PRECIP_RATE_FIELD_NAME: &str = "Precip Rate";
     let table_builder =
         TableWriterBuilder::new().add_float_field(PRECIP_RATE_FIELD_NAME.try_into().unwrap(), 5, 3);
-    let mut writer = Writer::from_path(output.to_string() + ".shp", table_builder)?;
+    let mut writer = Writer::from_path(output.to_string(), table_builder)?;
     let mut record = Record::default();
     let dpr_bins: Vec<(GeoPolygon<f32>, Velocity)> = dpr.to_polygons(skip_zeros);
     for bin in dpr_bins {
@@ -124,7 +125,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
         Action::ToGeojson { input, skip_zeros } => {
             let dpr = read_and_convert(&input)?;
-            convert_to_geojson(dpr, skip_zeros)?
+            convert_to_geojson(dpr, skip_zeros)?;
         }
         Action::ToShapefile {
             input,
