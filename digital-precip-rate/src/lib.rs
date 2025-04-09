@@ -138,21 +138,21 @@ impl PrecipRate {
 
 impl Display for PrecipRate {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Station Code:            {}\n", self.station_code)?;
-        write!(f, "Capture Time:            {}\n", self.capture_time)?;
-        write!(f, "Operational Mode:        {}\n", self.operational_mode)?;
-        write!(f, "Scan Number:             {: >2}\n", self.scan_number)?;
-        write!(
+        writeln!(f, "Station Code:            {}", self.station_code)?;
+        writeln!(f, "Capture Time:            {}", self.capture_time)?;
+        writeln!(f, "Operational Mode:        {}", self.operational_mode)?;
+        writeln!(f, "Scan Number:             {}", self.scan_number)?;
+        writeln!(
             f,
-            "Precipitation Detected:  {}\n",
+            "Precipitation Detected:  {}",
             if self.precip_detected { "Yes" } else { "No" }
         )?;
-        write!(
+        writeln!(
             f,
-            "Bin Size:                {: >3} m\n",
+            "Bin Size:                {: >3} m",
             self.bin_size.get::<meter>()
         )?;
-        write!(f, "Number of Radials:      {: >4}\n", self.radials.len())?;
+        writeln!(f, "Number of Radials:      {: >4}", self.radials.len())?;
         write!(
             f,
             "Range to First Bin:      {: >3} m",
