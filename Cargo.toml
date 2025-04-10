@@ -1,3 +1,15 @@
-[workspace]
-members = ["dipr", "digital-precip-rate"]
-resolver = "3"
+[package]
+name = "dipr"
+version = "0.1.0"
+license = "Apache-2.0"
+authors = ["Bradley Gannon <bradley@bradleygannon.com>"]
+edition = "2024"
+
+[dependencies]
+bzip2-rs = "0.1.2"
+clap = { version = "4.5.35", features = ["derive"] }
+chrono = { version = "0.4.40", default-features = false, features = ["alloc"] }
+geo = { version = "0.30.0", default-features = false }
+geojson = "0.24.2"
+shapefile = "0.7.0"
+uom = "0.36.0"

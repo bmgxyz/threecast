@@ -14,19 +14,15 @@ processing it after conversion.
 [shapefile]: https://en.wikipedia.org/wiki/Shapefile
 [geojson]: https://en.wikipedia.org/wiki/GeoJSON
 
-I'd like to implement proper nowcasting features in the future in order to live up to the name of
-this repo, but if I do then I'll keep them separate from the core parsing logic.
-
 ## Usage
 
 ### As a CLI Tool
 
-1. Download data from [here][data]. You'll need to know the station code for the radar you're
-   interested in. The file called `sn.last` is the most recent scan. The scan files are updated in a
-   [circular][circular buffer] fashion.
-2. Follow the help text generated with `cargo run --release -p dipr -- -h`. The three possible
-   subcommands are `info`, `to-geojson`, and `to-shapefile`. Help text is available for each
-   subcommand.
+1. Download data from [here][data]. You'll need to know the [station code][nws stations wiki] for
+   the radar you're interested in. The file called `sn.last` is the most recent scan. The scan files
+   are updated in a [circular][circular buffer] fashion.
+2. Follow the help text generated with `cargo run --release -- -h`. The three possible subcommands
+   are `info`, `to-geojson`, and `to-shapefile`. Help text is available for each subcommand.
 3. After converting the radar data to one of the supported target formats, use other GIS tools to
    view or process it. For example, you can rasterize the resulting GeoJSON data with something
    like:
@@ -35,17 +31,18 @@ this repo, but if I do then I'll keep them separate from the core parsing logic.
 gdal_rasterize -l foo -a precipRate -ts 1920 1080 -a_nodata 0.0 -ot Float32 -of GTiff foo.geojson foo.tif > /dev/null
 ```
 
+[nws stations wiki]: https://en.wikipedia.org/wiki/List_of_National_Weather_Service_Weather_Forecast_Offices
 [data]: https://tgftp.nws.noaa.gov/SL.us008001/DF.of/DC.radar/DS.176pr/
 [circular buffer]: https://en.wikipedia.org/wiki/Circular_buffer
 
 ### As a Library
 
-The `digital-precip-rate` library only provides one public function, `parse_dpr`, which takes
-`&[u8]` as input and returns `Result<PrecipRate, DprError>`. `DprError` is an enum that either
-indicates a product-specific parsing error or wraps a lower-level error. `PrecipRate` is a structure
-that contains a useful subset of the data in the original file. The precipitation bin data is
-available in the `radials` field. `ParseDpr` also has a `to_polygons` method that allows the user to
-extract the precipitation bin data as `Vec<(Polygon<f32>, Velocity)>`, where each tuple contains a
+The `dipr` library only provides one public function, `parse_dpr`, which takes `&[u8]` as input and
+returns `Result<PrecipRate, DprError>`. `DprError` is an enum that either indicates a
+product-specific parsing error or wraps a lower-level error. `PrecipRate` is a structure that
+contains a useful subset of the data in the original file. The precipitation bin data is available
+in the `radials` field. `ParseDpr` also has a `to_polygons` method that allows the user to extract
+the precipitation bin data as `Vec<(Polygon<f32>, Velocity)>`, where each tuple contains a
 `geo_types::geometry::Polygon` defining the bin's boundary and a `uom::si::f32::Velocity` indicating
 the precipitation rate for that bin. All fields in all structs use types that encode semantic or
 unit-aware meaning where possible.

@@ -173,21 +173,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "digital-precip-rate"
+name = "dipr"
 version = "0.1.0"
 dependencies = [
  "bzip2-rs",
  "chrono",
- "geo",
- "uom",
-]
-
-[[package]]
-name = "dipr"
-version = "0.1.0"
-dependencies = [
  "clap",
- "digital-precip-rate",
  "geo",
  "geojson",
  "shapefile",

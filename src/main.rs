@@ -5,7 +5,7 @@ use std::{
 };
 
 use clap::{Parser, Subcommand};
-use digital_precip_rate::{PrecipRate, inch_per_hour, parse_dpr};
+use dipr::{PrecipRate, inch_per_hour, parse_dpr};
 use geo::{CoordsIter, Polygon as GeoPolygon};
 use geojson::{Feature, FeatureCollection, GeoJson, JsonObject, JsonValue};
 use shapefile::{
