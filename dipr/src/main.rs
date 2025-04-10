@@ -105,7 +105,7 @@ fn convert_to_shapefile(
 }
 
 fn read_and_convert(input: &str) -> Result<PrecipRate, Box<dyn Error>> {
-    if input.is_empty() || input == "-" {
+    if input == "-" {
         let mut input_buf = vec![];
         stdin().read_to_end(&mut input_buf)?;
         Ok(parse_dpr(&input_buf)?)
