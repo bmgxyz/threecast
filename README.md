@@ -37,11 +37,11 @@ gdal_rasterize -l foo -a precipRate -ts 1920 1080 -a_nodata 0.0 -ot Float32 -of 
 
 ### As a Library
 
-The `dipr` library only provides one public function, `parse_dpr`, which takes `&[u8]` as input and
-returns `Result<PrecipRate, DprError>`. `DprError` is an enum that either indicates a
+The `dipr` library only provides one public function, `parse_dipr`, which takes `&[u8]` as input and
+returns `Result<PrecipRate, DiprError>`. `DiprError` is an enum that either indicates a
 product-specific parsing error or wraps a lower-level error. `PrecipRate` is a structure that
 contains a useful subset of the data in the original file. The precipitation bin data is available
-in the `radials` field. `ParseDpr` also has a `to_polygons` method that allows the user to extract
+in the `radials` field. `PrecipRate` also has a `to_polygons` method that allows the user to extract
 the precipitation bin data as `Vec<(Polygon<f32>, Velocity)>`, where each tuple contains a
 `geo_types::geometry::Polygon` defining the bin's boundary and a `uom::si::f32::Velocity` indicating
 the precipitation rate for that bin. All fields in all structs use types that encode semantic or

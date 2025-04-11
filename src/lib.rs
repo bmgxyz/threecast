@@ -19,13 +19,13 @@ mod product_symbology;
 mod radials;
 mod utils;
 
-pub use error::DprError;
+pub use error::DiprError;
 use product_description::product_description;
 use product_symbology::product_symbology;
 pub use radials::Radial;
 use utils::*;
 
-pub type ParseResult<'a, T> = Result<(T, &'a [u8]), DprError>;
+pub type ParseResult<'a, T> = Result<(T, &'a [u8]), DiprError>;
 
 #[derive(Debug)]
 pub struct PrecipRate {
@@ -92,7 +92,10 @@ fn destination(
 }
 
 impl PrecipRate {
-    pub fn to_polygons(self, skip_zeros: bool) -> impl Iterator<Item = (Polygon<f32>, Velocity)> {
+    pub fn into_bins_iter(
+        self,
+        skip_zeros: bool,
+    ) -> impl Iterator<Item = (Polygon<f32>, Velocity)> {
         let PrecipRate {
             location,
             bin_size,
@@ -235,7 +238,7 @@ fn message_header(input: &[u8]) -> ParseResult<()> {
     Ok(((), tail))
 }
 
-pub fn parse_dpr(input: &[u8]) -> Result<PrecipRate, DprError> {
+pub fn parse_dipr(input: &[u8]) -> Result<PrecipRate, DiprError> {
     let (station_code, tail) = text_header(input)?;
     let (_, tail) = message_header(tail)?;
 

@@ -4,7 +4,7 @@ use chrono::{DateTime, Utc};
 use uom::si::{f32::Length, length::meter};
 
 use crate::{
-    DprError, ParseResult,
+    DiprError, ParseResult,
     radials::{Radial, radial},
     utils::*,
 };
@@ -22,7 +22,7 @@ impl ProductSymbology {
     const SCAN_NUMBER_RANGE: RangeInclusive<i32> = 1..=80;
     const RADIAL_COMPONENT_TYPE_VALUE: i32 = 1;
     const BIN_SIZE_RANGE: RangeInclusive<f32> = (0.)..=1000.;
-    // It seems like the specified range may be incorrect for actual DPR files
+    // It seems like the specified range may be incorrect for actual DIPR files
     // const RANGE_TO_FIRST_BIN_RANGE: RangeInclusive<f32> = (1000.)..=460000.;
     const NUM_RADIALS_RANGE: RangeInclusive<i32> = 0..=800;
 }
@@ -52,8 +52,8 @@ pub(crate) fn product_symbology(input: &[u8]) -> ParseResult<ProductSymbology> {
     let (_, tail) = take_bytes(tail, 24)?;
     let (number_of_components, tail) = take_i32(tail)?;
     if number_of_components != 1 {
-        return Err(DprError::Unsupported(format!(
-            "found number of components in product symbology not equal to 1 (got {}); DPR files containing multiple components are not supported",
+        return Err(DiprError::Unsupported(format!(
+            "found number of components in product symbology not equal to 1 (got {}); DIPR files containing multiple components are not supported",
             number_of_components
         )));
     }
@@ -98,7 +98,7 @@ pub(crate) fn product_symbology(input: &[u8]) -> ParseResult<ProductSymbology> {
     let scan_number = scan_number as u8;
     let capture_time = match DateTime::from_timestamp(capture_time as i64, 0) {
         Some(t) => t,
-        None => return Err(DprError::InvalidCaptureTime(capture_time)),
+        None => return Err(DiprError::InvalidCaptureTime(capture_time)),
     };
 
     Ok((

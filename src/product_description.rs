@@ -3,7 +3,7 @@ use std::{fmt::Display, ops::RangeInclusive};
 use geo::Point;
 use uom::si::f32::Velocity;
 
-use crate::{DprError, ParseResult, inch_per_hour, utils::*};
+use crate::{DiprError, ParseResult, inch_per_hour, utils::*};
 
 #[derive(Debug)]
 pub enum OperationalMode {
@@ -23,14 +23,14 @@ impl Display for OperationalMode {
 }
 
 impl TryFrom<i16> for OperationalMode {
-    type Error = DprError;
+    type Error = DiprError;
 
     fn try_from(value: i16) -> Result<Self, Self::Error> {
         match value {
             0 => Ok(OperationalMode::Maintenance),
             1 => Ok(OperationalMode::CleanAir),
             2 => Ok(OperationalMode::Precipitation),
-            v => Err(DprError::ValueOutOfRange(format!(
+            v => Err(DiprError::ValueOutOfRange(format!(
                 "operational mode: got {v}, expected {:?}",
                 ProductDescription::OPERATIONAL_MODE_RANGE
             ))),

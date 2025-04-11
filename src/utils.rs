@@ -3,7 +3,7 @@ use std::{
     ops::RangeInclusive,
 };
 
-use crate::{DprError, ParseResult};
+use crate::{DiprError, ParseResult};
 
 /// Pop `n` bytes off the front of `input` and return the two pieces
 pub(crate) fn take_bytes(input: &[u8], n: u16) -> ParseResult<&[u8]> {
@@ -72,9 +72,9 @@ pub(crate) fn check_value<T: Display + PartialEq>(
     actual: T,
     name: &str,
     func: &str,
-) -> Result<(), DprError> {
+) -> Result<(), DiprError> {
     if expected != actual {
-        Err(DprError::ValueOutOfRange(format!(
+        Err(DiprError::ValueOutOfRange(format!(
             "{name} in {func}: got {actual}, expected {expected}"
         )))
     } else {
@@ -87,9 +87,9 @@ pub(crate) fn check_range_inclusive<T: Debug + Display + PartialOrd>(
     actual: T,
     name: &str,
     func: &str,
-) -> Result<(), DprError> {
+) -> Result<(), DiprError> {
     if !expected.contains(&actual) {
-        Err(DprError::ValueOutOfRange(format!(
+        Err(DiprError::ValueOutOfRange(format!(
             "{name} in {func}: got {actual}, expected {expected:?}"
         )))
     } else {

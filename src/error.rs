@@ -7,7 +7,7 @@ use std::{
 };
 
 #[derive(Debug)]
-pub enum DprError {
+pub enum DiprError {
     InvalidOperationalMode(i16),
     InvalidCaptureTime(u32),
     DecompressionFailed(io::Error),
@@ -17,44 +17,44 @@ pub enum DprError {
     Unsupported(String),
 }
 
-impl Display for DprError {
+impl Display for DiprError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            DprError::InvalidOperationalMode(o) => write!(
+            DiprError::InvalidOperationalMode(o) => write!(
                 f,
                 "Failed to parse operational mode: expected 0, 1, or 2, but got {}",
                 o
             ),
-            DprError::InvalidCaptureTime(t) => {
+            DiprError::InvalidCaptureTime(t) => {
                 write!(f, "Failed to parse capture time: 0x{:02x}", t)
             }
-            DprError::DecompressionFailed(d) => {
+            DiprError::DecompressionFailed(d) => {
                 write!(f, "Failed to decompress product symbology: {}", d)
             }
-            DprError::InvalidUtf8String(u) => write!(f, "Failed to parse UTF-8 string: {}", u),
-            DprError::InvalidByteSlice(s) => write!(f, "Failed to parse byte slice: {}", s),
-            DprError::ValueOutOfRange(s) => write!(f, "Value out of specified range: {}", s),
-            DprError::Unsupported(s) => write!(f, "{}", s),
+            DiprError::InvalidUtf8String(u) => write!(f, "Failed to parse UTF-8 string: {}", u),
+            DiprError::InvalidByteSlice(s) => write!(f, "Failed to parse byte slice: {}", s),
+            DiprError::ValueOutOfRange(s) => write!(f, "Value out of specified range: {}", s),
+            DiprError::Unsupported(s) => write!(f, "{}", s),
         }
     }
 }
 
-impl Error for DprError {}
+impl Error for DiprError {}
 
-impl From<TryFromSliceError> for DprError {
+impl From<TryFromSliceError> for DiprError {
     fn from(value: TryFromSliceError) -> Self {
-        DprError::InvalidByteSlice(value)
+        DiprError::InvalidByteSlice(value)
     }
 }
 
-impl From<FromUtf8Error> for DprError {
+impl From<FromUtf8Error> for DiprError {
     fn from(value: FromUtf8Error) -> Self {
-        DprError::InvalidUtf8String(value)
+        DiprError::InvalidUtf8String(value)
     }
 }
 
-impl From<io::Error> for DprError {
+impl From<io::Error> for DiprError {
     fn from(value: io::Error) -> Self {
-        DprError::DecompressionFailed(value)
+        DiprError::DecompressionFailed(value)
     }
 }
