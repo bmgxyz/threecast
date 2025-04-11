@@ -1,11 +1,11 @@
 use std::{fmt::Display, io};
 
 use chrono::{DateTime, Utc};
-use geo::{Destination, Haversine, Point, Polygon, polygon};
+use geo::{Point, Polygon, polygon};
 use product_description::{OperationalMode, ProductDescription};
 use product_symbology::ProductSymbology;
 use uom::si::{
-    angle::degree,
+    angle::radian,
     f32::{Length, Velocity},
     length::meter,
 };
@@ -54,6 +54,43 @@ unit! {
     @inch_per_hour: 0.09144; "in/hr", "inch per hour", "inches per hour";
 }
 
+fn destination(
+    origin_rad: Point<f32>,
+    origin_lat_sin: f32,
+    origin_lat_cos: f32,
+    bearing_rad: f32,
+    meters: f32,
+) -> Point<f32> {
+    const EARTH_RADIUS_METERS: f32 = 6371008.8;
+
+    let origin_lng = origin_rad.x();
+
+    let rad = meters / EARTH_RADIUS_METERS;
+
+    let lat =
+        { origin_lat_sin * rad.cos() + origin_lat_cos * rad.sin() * bearing_rad.cos() }.asin();
+    let y = bearing_rad.sin() * rad.sin() * origin_lat_cos;
+    let x = rad.cos() - origin_lat_sin * lat.sin();
+    let y_div_x = y / x;
+    // approximate atan2 with the identity function for small values; accurate within 0.01%
+    let lng = if y_div_x < 0.017322 {
+        y_div_x
+    } else {
+        y.atan2(x)
+    } + origin_lng;
+
+    // normalize longitude
+    let lng = if lng > 180. {
+        lng - 180.
+    } else if lng < -180. {
+        lng + 180.
+    } else {
+        lng
+    };
+
+    Point::new(lng.to_degrees(), lat.to_degrees())
+}
+
 impl PrecipRate {
     pub fn to_polygons(self, skip_zeros: bool) -> Vec<(Polygon<f32>, Velocity)> {
         let PrecipRate {
@@ -72,48 +109,64 @@ impl PrecipRate {
                 precip_rates,
                 ..
             } = radial;
+            let origin_rad = origin.to_radians();
+            let origin_lat_sin = origin_rad.y().sin();
+            let origin_lat_cos = origin_rad.y().cos();
+            let center_azimuth = azimuth;
+            let left_azimuth = center_azimuth - width / 2.;
+            let right_azimuth = center_azimuth + width / 2.;
             for (bin_idx, precip_rate) in precip_rates.into_iter().enumerate() {
                 if skip_zeros && precip_rate.get::<inch_per_hour>() == 0. {
                     continue;
                 }
-                let center_azimuth = azimuth;
-                let center_inner = Haversine.destination(
-                    origin,
-                    center_azimuth.get::<degree>(),
+
+                let center_inner = destination(
+                    origin_rad,
+                    origin_lat_sin,
+                    origin_lat_cos,
+                    center_azimuth.get::<radian>(),
                     range_to_first_bin.get::<meter>()
                         + bin_size.get::<meter>() * (bin_idx as f32 - 0.5),
                 );
-                let center_outer = Haversine.destination(
-                    origin,
-                    center_azimuth.get::<degree>(),
+                let center_outer = destination(
+                    origin_rad,
+                    origin_lat_sin,
+                    origin_lat_cos,
+                    center_azimuth.get::<radian>(),
                     range_to_first_bin.get::<meter>()
                         + bin_size.get::<meter>() * (bin_idx as f32 + 0.5),
                 );
 
-                let left_azimuth = center_azimuth - width / 2.;
-                let left_inner = Haversine.destination(
-                    origin,
-                    left_azimuth.get::<degree>(),
+                let left_inner = destination(
+                    origin_rad,
+                    origin_lat_sin,
+                    origin_lat_cos,
+                    left_azimuth.get::<radian>(),
                     range_to_first_bin.get::<meter>()
                         + bin_size.get::<meter>() * (bin_idx as f32 - 0.5),
                 );
-                let left_outer = Haversine.destination(
-                    origin,
-                    left_azimuth.get::<degree>(),
+                let left_outer = destination(
+                    origin_rad,
+                    origin_lat_sin,
+                    origin_lat_cos,
+                    left_azimuth.get::<radian>(),
                     range_to_first_bin.get::<meter>()
                         + bin_size.get::<meter>() * (bin_idx as f32 + 0.5),
                 );
 
-                let right_azimuth = center_azimuth + width / 2.;
-                let right_inner = Haversine.destination(
-                    origin,
-                    right_azimuth.get::<degree>(),
+                let right_inner = destination(
+                    origin_rad,
+                    origin_lat_sin,
+                    origin_lat_cos,
+                    right_azimuth.get::<radian>(),
                     range_to_first_bin.get::<meter>()
                         + bin_size.get::<meter>() * (bin_idx as f32 - 0.5),
                 );
-                let right_outer = Haversine.destination(
-                    origin,
-                    right_azimuth.get::<degree>(),
+                let right_outer = destination(
+                    origin_rad,
+                    origin_lat_sin,
+                    origin_lat_cos,
+                    right_azimuth.get::<radian>(),
                     range_to_first_bin.get::<meter>()
                         + bin_size.get::<meter>() * (bin_idx as f32 + 0.5),
                 );
