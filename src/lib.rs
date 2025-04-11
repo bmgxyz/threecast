@@ -1,9 +1,15 @@
 use std::{fmt::Display, io};
 
 use chrono::{DateTime, Utc};
-use geo::{Point, Polygon, polygon};
+use geo::{CoordsIter, Point as GeoPoint, Polygon as GeoPolygon, polygon};
+use geojson::{Feature, JsonObject, JsonValue};
 use product_description::{OperationalMode, ProductDescription};
 use product_symbology::ProductSymbology;
+use shapefile::{
+    Point as ShapefilePoint, Polygon as ShapefilePolygon, PolygonRing,
+    dbase::{self, FieldValue},
+    record::polygon::GenericPolygon,
+};
 use uom::si::{
     angle::radian,
     f32::{Length, Velocity},
@@ -38,7 +44,7 @@ pub struct PrecipRate {
     /// This is to match the underlying convention of the `geo` crate, which ensures that the first
     /// coordinate `x` maps to the horizontal value (longitude) and the second coordinate `y` maps
     /// to the vertical value (latitude).
-    pub location: Point<f32>,
+    pub location: GeoPoint<f32>,
     pub operational_mode: OperationalMode,
     pub precip_detected: bool,
     pub max_precip_rate: Velocity,
@@ -55,12 +61,12 @@ unit! {
 }
 
 fn destination(
-    origin_rad: Point<f32>,
+    origin_rad: GeoPoint<f32>,
     origin_lat_sin: f32,
     origin_lat_cos: f32,
     bearing_rad: f32,
     meters: f32,
-) -> Point<f32> {
+) -> GeoPoint<f32> {
     const EARTH_RADIUS_METERS: f32 = 6371008.8;
 
     let origin_lng = origin_rad.x();
@@ -88,14 +94,14 @@ fn destination(
         lng
     };
 
-    Point::new(lng.to_degrees(), lat.to_degrees())
+    GeoPoint::new(lng.to_degrees(), lat.to_degrees())
 }
 
 impl PrecipRate {
     pub fn into_bins_iter(
         self,
         skip_zeros: bool,
-    ) -> impl Iterator<Item = (Polygon<f32>, Velocity)> {
+    ) -> impl Iterator<Item = (GeoPolygon<f32>, Velocity)> {
         let PrecipRate {
             location,
             bin_size,
@@ -190,6 +196,38 @@ impl PrecipRate {
                     Some((bin_shape, precip_rate))
                 })
         })
+    }
+    pub fn into_shapefile_iter(
+        self,
+        skip_zeros: bool,
+    ) -> impl Iterator<Item = (GenericPolygon<ShapefilePoint>, FieldValue)> {
+        self.into_bins_iter(skip_zeros)
+            .map(|(polygon, precip_rate)| {
+                (
+                    ShapefilePolygon::new(PolygonRing::Outer(
+                        polygon
+                            .coords_iter()
+                            .map(|c| ShapefilePoint::new(c.x.into(), c.y.into()))
+                            .collect::<Vec<ShapefilePoint>>(),
+                    )),
+                    dbase::FieldValue::Float(Some(precip_rate.get::<inch_per_hour>())),
+                )
+            })
+    }
+    pub fn into_geojson_iter(self, skip_zeros: bool) -> impl Iterator<Item = Feature> {
+        self.into_bins_iter(skip_zeros)
+            .map(|(polygon, precip_rate)| {
+                let mut properties = JsonObject::new();
+                properties.insert(
+                    "precipRate".to_string(),
+                    JsonValue::from(precip_rate.get::<inch_per_hour>()),
+                );
+                Feature {
+                    geometry: Some((&polygon).into()),
+                    properties: Some(properties),
+                    ..Default::default()
+                }
+            })
     }
 }
 

@@ -5,33 +5,18 @@ use std::{
 };
 
 use clap::{Parser, Subcommand};
-use dipr::{PrecipRate, inch_per_hour, parse_dipr};
-use geo::CoordsIter;
-use geojson::{Feature, FeatureCollection, GeoJson, JsonObject, JsonValue};
+use dipr::{PrecipRate, parse_dipr};
+use geojson::{FeatureCollection, GeoJson};
 use shapefile::{
-    Point, Polygon as ShapefilePolygon, PolygonRing, Writer,
-    dbase::{self, Record, TableWriterBuilder},
+    Writer,
+    dbase::{Record, TableWriterBuilder},
 };
 
 fn convert_to_geojson(dipr: PrecipRate, skip_zeros: bool) -> Result<(), Box<dyn Error>> {
-    let mut features = vec![];
-    for bin in dipr.into_bins_iter(skip_zeros) {
-        let (geometry, precip_rate) = bin;
-        let mut properties = JsonObject::new();
-        properties.insert(
-            "precipRate".to_string(),
-            JsonValue::from(precip_rate.get::<inch_per_hour>()),
-        );
-        features.push(Feature {
-            geometry: Some((&geometry).into()),
-            properties: Some(properties),
-            ..Default::default()
-        });
-    }
     println!(
         "{}",
         GeoJson::FeatureCollection(FeatureCollection {
-            features,
+            features: dipr.into_geojson_iter(skip_zeros).collect(),
             ..Default::default()
         })
     );
@@ -84,18 +69,9 @@ fn convert_to_shapefile(
         TableWriterBuilder::new().add_float_field(PRECIP_RATE_FIELD_NAME.try_into().unwrap(), 5, 3);
     let mut writer = Writer::from_path(output, table_builder)?;
     let mut record = Record::default();
-    for bin in dipr.into_bins_iter(skip_zeros) {
-        let (geometry, precip_rate) = bin;
-        let polygon = ShapefilePolygon::new(PolygonRing::Outer(
-            geometry
-                .coords_iter()
-                .map(|c| Point::new(c.x.into(), c.y.into()))
-                .collect::<Vec<Point>>(),
-        ));
-        record.insert(
-            PRECIP_RATE_FIELD_NAME.to_string(),
-            dbase::FieldValue::Float(Some(precip_rate.get::<inch_per_hour>())),
-        );
+    for bin in dipr.into_shapefile_iter(skip_zeros) {
+        let (polygon, precip_rate) = bin;
+        record.insert(PRECIP_RATE_FIELD_NAME.to_string(), precip_rate);
         writer.write_shape_and_record(&polygon, &record)?;
     }
     Ok(())
