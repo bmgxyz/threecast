@@ -6,18 +6,16 @@ use std::{
 
 use clap::{Parser, Subcommand};
 use dipr::{PrecipRate, inch_per_hour, parse_dpr};
-use geo::{CoordsIter, Polygon as GeoPolygon};
+use geo::CoordsIter;
 use geojson::{Feature, FeatureCollection, GeoJson, JsonObject, JsonValue};
 use shapefile::{
     Point, Polygon as ShapefilePolygon, PolygonRing, Writer,
     dbase::{self, Record, TableWriterBuilder},
 };
-use uom::si::f32::Velocity;
 
 fn convert_to_geojson(dpr: PrecipRate, skip_zeros: bool) -> Result<(), Box<dyn Error>> {
-    let dpr_bins: Vec<(GeoPolygon<f32>, Velocity)> = dpr.to_polygons(skip_zeros);
-    let mut features = Vec::with_capacity(dpr_bins.len());
-    for bin in dpr_bins {
+    let mut features = vec![];
+    for bin in dpr.to_polygons(skip_zeros) {
         let (geometry, precip_rate) = bin;
         let mut properties = JsonObject::new();
         properties.insert(
@@ -84,10 +82,9 @@ fn convert_to_shapefile(
     const PRECIP_RATE_FIELD_NAME: &str = "Precip Rate";
     let table_builder =
         TableWriterBuilder::new().add_float_field(PRECIP_RATE_FIELD_NAME.try_into().unwrap(), 5, 3);
-    let mut writer = Writer::from_path(output.to_string(), table_builder)?;
+    let mut writer = Writer::from_path(output, table_builder)?;
     let mut record = Record::default();
-    let dpr_bins: Vec<(GeoPolygon<f32>, Velocity)> = dpr.to_polygons(skip_zeros);
-    for bin in dpr_bins {
+    for bin in dpr.to_polygons(skip_zeros) {
         let (geometry, precip_rate) = bin;
         let polygon = ShapefilePolygon::new(PolygonRing::Outer(
             geometry

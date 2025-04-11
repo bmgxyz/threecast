@@ -92,7 +92,7 @@ fn destination(
 }
 
 impl PrecipRate {
-    pub fn to_polygons(self, skip_zeros: bool) -> Vec<(Polygon<f32>, Velocity)> {
+    pub fn to_polygons(self, skip_zeros: bool) -> impl Iterator<Item = (Polygon<f32>, Velocity)> {
         let PrecipRate {
             location,
             bin_size,
@@ -101,8 +101,7 @@ impl PrecipRate {
             ..
         } = self;
         let origin = location;
-        let mut bins = vec![];
-        for radial in radials {
+        radials.into_iter().flat_map(move |radial| {
             let Radial {
                 azimuth,
                 width,
@@ -115,78 +114,79 @@ impl PrecipRate {
             let center_azimuth = azimuth;
             let left_azimuth = center_azimuth - width / 2.;
             let right_azimuth = center_azimuth + width / 2.;
-            for (bin_idx, precip_rate) in precip_rates.into_iter().enumerate() {
-                if skip_zeros && precip_rate.get::<inch_per_hour>() == 0. {
-                    continue;
-                }
+            precip_rates
+                .into_iter()
+                .enumerate()
+                .flat_map(move |(bin_idx, precip_rate)| {
+                    if skip_zeros && precip_rate.get::<inch_per_hour>() == 0. {
+                        return None;
+                    }
 
-                let center_inner = destination(
-                    origin_rad,
-                    origin_lat_sin,
-                    origin_lat_cos,
-                    center_azimuth.get::<radian>(),
-                    range_to_first_bin.get::<meter>()
-                        + bin_size.get::<meter>() * (bin_idx as f32 - 0.5),
-                );
-                let center_outer = destination(
-                    origin_rad,
-                    origin_lat_sin,
-                    origin_lat_cos,
-                    center_azimuth.get::<radian>(),
-                    range_to_first_bin.get::<meter>()
-                        + bin_size.get::<meter>() * (bin_idx as f32 + 0.5),
-                );
+                    let distance_inner_meters = range_to_first_bin.get::<meter>()
+                        + bin_size.get::<meter>() * (bin_idx as f32 - 0.5);
+                    let distance_outer_meters = range_to_first_bin.get::<meter>()
+                        + bin_size.get::<meter>() * (bin_idx as f32 + 0.5);
 
-                let left_inner = destination(
-                    origin_rad,
-                    origin_lat_sin,
-                    origin_lat_cos,
-                    left_azimuth.get::<radian>(),
-                    range_to_first_bin.get::<meter>()
-                        + bin_size.get::<meter>() * (bin_idx as f32 - 0.5),
-                );
-                let left_outer = destination(
-                    origin_rad,
-                    origin_lat_sin,
-                    origin_lat_cos,
-                    left_azimuth.get::<radian>(),
-                    range_to_first_bin.get::<meter>()
-                        + bin_size.get::<meter>() * (bin_idx as f32 + 0.5),
-                );
+                    let center_inner = destination(
+                        origin_rad,
+                        origin_lat_sin,
+                        origin_lat_cos,
+                        center_azimuth.get::<radian>(),
+                        distance_inner_meters,
+                    );
+                    let center_outer = destination(
+                        origin_rad,
+                        origin_lat_sin,
+                        origin_lat_cos,
+                        center_azimuth.get::<radian>(),
+                        distance_outer_meters,
+                    );
 
-                let right_inner = destination(
-                    origin_rad,
-                    origin_lat_sin,
-                    origin_lat_cos,
-                    right_azimuth.get::<radian>(),
-                    range_to_first_bin.get::<meter>()
-                        + bin_size.get::<meter>() * (bin_idx as f32 - 0.5),
-                );
-                let right_outer = destination(
-                    origin_rad,
-                    origin_lat_sin,
-                    origin_lat_cos,
-                    right_azimuth.get::<radian>(),
-                    range_to_first_bin.get::<meter>()
-                        + bin_size.get::<meter>() * (bin_idx as f32 + 0.5),
-                );
+                    let left_inner = destination(
+                        origin_rad,
+                        origin_lat_sin,
+                        origin_lat_cos,
+                        left_azimuth.get::<radian>(),
+                        distance_inner_meters,
+                    );
+                    let left_outer = destination(
+                        origin_rad,
+                        origin_lat_sin,
+                        origin_lat_cos,
+                        left_azimuth.get::<radian>(),
+                        distance_outer_meters,
+                    );
 
-                let bin_shape = if center_inner == right_inner || center_inner == left_inner {
-                    polygon!(center_inner.into(), right_outer.into(), left_outer.into(),)
-                } else {
-                    polygon!(
-                        center_inner.into(),
-                        right_inner.into(),
-                        right_outer.into(),
-                        center_outer.into(),
-                        left_outer.into(),
-                        left_inner.into()
-                    )
-                };
-                bins.push((bin_shape, precip_rate));
-            }
-        }
-        bins
+                    let right_inner = destination(
+                        origin_rad,
+                        origin_lat_sin,
+                        origin_lat_cos,
+                        right_azimuth.get::<radian>(),
+                        distance_inner_meters,
+                    );
+                    let right_outer = destination(
+                        origin_rad,
+                        origin_lat_sin,
+                        origin_lat_cos,
+                        right_azimuth.get::<radian>(),
+                        distance_outer_meters,
+                    );
+
+                    let bin_shape = if center_inner == right_inner || center_inner == left_inner {
+                        polygon!(center_inner.into(), right_outer.into(), left_outer.into(),)
+                    } else {
+                        polygon!(
+                            center_inner.into(),
+                            right_inner.into(),
+                            right_outer.into(),
+                            center_outer.into(),
+                            left_outer.into(),
+                            left_inner.into()
+                        )
+                    };
+                    Some((bin_shape, precip_rate))
+                })
+        })
     }
 }
 
