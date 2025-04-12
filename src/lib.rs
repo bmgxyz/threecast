@@ -290,7 +290,7 @@ impl Display for PrecipRate {
         writeln!(f, "Scan Number:         {}", self.scan_number)?;
         writeln!(
             f,
-            "Max Precip Rate:     {} in/hr",
+            "Max Precip Rate:     {:.3} in/hr",
             self.max_precip_rate.get::<inch_per_hour>()
         )?;
         writeln!(
