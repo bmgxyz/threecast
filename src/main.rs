@@ -2,14 +2,17 @@ use std::{
     error::Error,
     fs,
     io::{Read, stdin},
+    sync::mpsc,
+    thread::{self, JoinHandle},
 };
 
 use clap::{Parser, Subcommand};
 use dipr::{PrecipRate, parse_dipr};
 use geojson::{FeatureCollection, GeoJson};
 use shapefile::{
-    Writer,
-    dbase::{Record, TableWriterBuilder},
+    Error as ShapefileError, Point, Writer,
+    dbase::{FieldValue, Record, TableWriterBuilder},
+    record::polygon::GenericPolygon,
 };
 
 fn read_and_convert(input: &str) -> Result<PrecipRate, Box<dyn Error>> {
@@ -28,16 +31,28 @@ fn convert_to_shapefile(
     skip_zeros: bool,
     output: &str,
 ) -> Result<(), Box<dyn Error>> {
+    let (tx, rx) = mpsc::channel::<(GenericPolygon<Point>, FieldValue)>();
+
     const PRECIP_RATE_FIELD_NAME: &str = "Precip Rate";
     let table_builder =
         TableWriterBuilder::new().add_float_field(PRECIP_RATE_FIELD_NAME.try_into().unwrap(), 5, 3);
     let mut writer = Writer::from_path(output, table_builder)?;
     let mut record = Record::default();
+
+    let writer_thread: JoinHandle<Result<(), ShapefileError>> = thread::spawn(move || {
+        for (polygon, precip_rate) in rx {
+            record.insert(PRECIP_RATE_FIELD_NAME.to_string(), precip_rate);
+            writer.write_shape_and_record(&polygon, &record)?;
+        }
+        Ok(())
+    });
+
     for bin in dipr.into_shapefile_iter(skip_zeros) {
-        let (polygon, precip_rate) = bin;
-        record.insert(PRECIP_RATE_FIELD_NAME.to_string(), precip_rate);
-        writer.write_shape_and_record(&polygon, &record)?;
+        tx.send(bin)?;
     }
+
+    drop(tx);
+    let _ = writer_thread.join();
     Ok(())
 }
 
