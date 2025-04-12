@@ -140,6 +140,12 @@ impl PrecipRate {
     /// but is likely to be identical to the input file. That is, bins within each radial are given
     /// in increasing order of distance from the radar station, and radials are given in increasing
     /// order of azimuth angle.
+    ///
+    /// Note that DIPR product files don't seem to specify a coordinate reference system (CRS), so
+    /// this method uses a spherical Earth approximation. It's likely that this is [good enough for
+    /// most purposes][xkcd 2170].
+    ///
+    /// [xkcd 2170]: https://xkcd.com/2170/
     pub fn into_bins_iter(
         self,
         skip_zeros: bool,
