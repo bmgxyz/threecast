@@ -12,6 +12,35 @@ use shapefile::{
     dbase::{Record, TableWriterBuilder},
 };
 
+fn read_and_convert(input: &str) -> Result<PrecipRate, Box<dyn Error>> {
+    if input == "-" {
+        let mut input_buf = vec![];
+        stdin().read_to_end(&mut input_buf)?;
+        Ok(parse_dipr(&input_buf)?)
+    } else {
+        let input_file = fs::read(input)?;
+        Ok(parse_dipr(&input_file)?)
+    }
+}
+
+fn convert_to_shapefile(
+    dipr: PrecipRate,
+    skip_zeros: bool,
+    output: &str,
+) -> Result<(), Box<dyn Error>> {
+    const PRECIP_RATE_FIELD_NAME: &str = "Precip Rate";
+    let table_builder =
+        TableWriterBuilder::new().add_float_field(PRECIP_RATE_FIELD_NAME.try_into().unwrap(), 5, 3);
+    let mut writer = Writer::from_path(output, table_builder)?;
+    let mut record = Record::default();
+    for bin in dipr.into_shapefile_iter(skip_zeros) {
+        let (polygon, precip_rate) = bin;
+        record.insert(PRECIP_RATE_FIELD_NAME.to_string(), precip_rate);
+        writer.write_shape_and_record(&polygon, &record)?;
+    }
+    Ok(())
+}
+
 fn convert_to_geojson(dipr: PrecipRate, skip_zeros: bool) -> Result<(), Box<dyn Error>> {
     println!(
         "{}",
@@ -57,35 +86,6 @@ enum Action {
         /// /path/to/foo{.shp,.shx,.dbf}
         output: String,
     },
-}
-
-fn convert_to_shapefile(
-    dipr: PrecipRate,
-    skip_zeros: bool,
-    output: &str,
-) -> Result<(), Box<dyn Error>> {
-    const PRECIP_RATE_FIELD_NAME: &str = "Precip Rate";
-    let table_builder =
-        TableWriterBuilder::new().add_float_field(PRECIP_RATE_FIELD_NAME.try_into().unwrap(), 5, 3);
-    let mut writer = Writer::from_path(output, table_builder)?;
-    let mut record = Record::default();
-    for bin in dipr.into_shapefile_iter(skip_zeros) {
-        let (polygon, precip_rate) = bin;
-        record.insert(PRECIP_RATE_FIELD_NAME.to_string(), precip_rate);
-        writer.write_shape_and_record(&polygon, &record)?;
-    }
-    Ok(())
-}
-
-fn read_and_convert(input: &str) -> Result<PrecipRate, Box<dyn Error>> {
-    if input == "-" {
-        let mut input_buf = vec![];
-        stdin().read_to_end(&mut input_buf)?;
-        Ok(parse_dipr(&input_buf)?)
-    } else {
-        let input_file = fs::read(input)?;
-        Ok(parse_dipr(&input_file)?)
-    }
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
