@@ -7,13 +7,23 @@ use std::{
 };
 
 #[derive(Debug)]
+/// Indicates a product-specific parsing error or wraps a lower-level error
 pub enum DiprError {
+    /// Found an invalid value for the station's operational mode
     InvalidOperationalMode(i16),
+    /// Found an invalid value for the scan start time
+    ///
+    /// Since this value is defined as a Unix timestamp, this error variant should be unreachable.
     InvalidCaptureTime(u32),
+    /// Failed to decompress the symbology block using [`bzip2_rs`]
     DecompressionFailed(io::Error),
+    /// Failed to convert a byte slice to a [`String`] due to invalid UTF-8
     InvalidUtf8String(FromUtf8Error),
+    /// Failed to convert a byte slice to a fixed-length array
     InvalidByteSlice(TryFromSliceError),
+    /// Parsed value was outside its acceptable range defined in the specification
     ValueOutOfRange(String),
+    /// Encountered a DIPR file variant that this crate doesn't support
     Unsupported(String),
 }
 

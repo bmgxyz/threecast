@@ -1,3 +1,13 @@
+//! Convert the National Weather Service's (NWS) Digital Instantaneous Precipitation Rate (DIPR)
+//! radar product from its native data format into more common vector GIS formats
+//!
+//! The DIPR radar product is useful for observing and predicting precipitation on small time and
+//! distance scales (less than 10 km or 60 minutes). This forecasting niche is called nowcasting.
+//!
+//! NWS defines the DIPR format in [this specification document][spec].
+//!
+//! [spec]: https://www.roc.noaa.gov/public-documents/icds/2620001T.pdf
+
 use std::{fmt::Display, io};
 
 use chrono::{DateTime, Utc};
@@ -31,25 +41,50 @@ use product_symbology::product_symbology;
 pub use radials::Radial;
 use utils::*;
 
+/// Convenient wrapper around [`Result`]
+///
+/// The `Ok` case returns some `T` that the returning function intends to parse, along with the
+/// remaining input which has advanced past the parsed value. This is similar to how [`nom`][nom]
+/// works, but less fancy.
+///
+/// [nom]: https://docs.rs/nom/latest/nom/
 pub type ParseResult<'a, T> = Result<(T, &'a [u8]), DiprError>;
 
 #[derive(Debug)]
+/// Semantically useful representation of a DIPR product file
+///
+/// Create this struct with [parse_dipr].
 pub struct PrecipRate {
+    /// Radar station where this file was generated
+    ///
+    /// Station codes are usually four letters long. A list is available [here][station codes].
+    ///
+    /// [station codes]: https://www.weather.gov/media/tg/wsr88d-radar-list.pdf
     pub station_code: String,
+    /// Moment when the scan in this file began
     pub capture_time: DateTime<Utc>,
+    /// Incrementing counter to disambiguate scans
+    ///
+    /// This value is always between 1 and 80 inclusive.
     pub scan_number: u8,
     /// Longitude/latitude coordinates of the radar station in degrees
     ///
     /// Note that the coordinates are reversed from the perhaps more typical latitude/longitude.
     /// This is to match the underlying convention of the `geo` crate, which ensures that the first
-    /// coordinate `x` maps to the horizontal value (longitude) and the second coordinate `y` maps
-    /// to the vertical value (latitude).
+    /// coordinate `x` maps to the "horizontal" value (longitude) and the second coordinate `y` maps
+    /// to the "vertical" value (latitude).
     pub location: GeoPoint<f32>,
+    /// Condition of the radar station
     pub operational_mode: OperationalMode,
+    /// Whether the radar station measured any precipitation anywhere in its coverage area
     pub precip_detected: bool,
+    /// Highest precipitation rate found in this file
     pub max_precip_rate: Velocity,
+    /// Distance between the inner and outer extents of each bin measured radially
     pub bin_size: Length,
+    /// Distance between the radar station and the center of the nearest bin
     pub range_to_first_bin: Length,
+    /// All precipitation data contained in this DIPR file organized by azimuth
     pub radials: Vec<Radial>,
 }
 
@@ -98,6 +133,13 @@ fn destination(
 }
 
 impl PrecipRate {
+    /// Iterate over all bins, giving each of their boundaries and precipitation rates in a tuple
+    ///
+    /// Note that while the bins are officially bounded by circle sectors, this function
+    /// approximates the bin shapes with polygons composed of line segments. Order is not guaranteed
+    /// but is likely to be identical to the input file. That is, bins within each radial are given
+    /// in increasing order of distance from the radar station, and radials are given in increasing
+    /// order of azimuth angle.
     pub fn into_bins_iter(
         self,
         skip_zeros: bool,
@@ -197,6 +239,8 @@ impl PrecipRate {
                 })
         })
     }
+    /// Iterate over all precipitation bins as in [`PrecipRate::into_bins_iter`], but also convert
+    /// the results into values that are useful with the [`shapefile`] crate
     pub fn into_shapefile_iter(
         self,
         skip_zeros: bool,
@@ -214,6 +258,8 @@ impl PrecipRate {
                 )
             })
     }
+    /// Iterate over all precipitation bins as in [`PrecipRate::into_bins_iter`], but also convert
+    /// the results into values that are useful with the [`geojson`] crate
     pub fn into_geojson_iter(self, skip_zeros: bool) -> impl Iterator<Item = Feature> {
         self.into_bins_iter(skip_zeros)
             .map(|(polygon, precip_rate)| {
@@ -276,6 +322,7 @@ fn message_header(input: &[u8]) -> ParseResult<()> {
     Ok(((), tail))
 }
 
+/// Convert a byte slice into a [`PrecipRate`] or return an error
 pub fn parse_dipr(input: &[u8]) -> Result<PrecipRate, DiprError> {
     let (station_code, tail) = text_header(input)?;
     let (_, tail) = message_header(tail)?;

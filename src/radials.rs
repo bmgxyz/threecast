@@ -8,10 +8,15 @@ use uom::si::{
 use crate::{ParseResult, inch_per_hour, utils::*};
 
 #[derive(Debug)]
+/// Precipitation rates measured in a particular direction
 pub struct Radial {
+    /// Bearing along which this radial points
     pub azimuth: Angle,
+    /// Angle that the radar beam made with respect to horizontal
     pub elevation: Angle,
+    /// Angular size of this radial
     pub width: Angle,
+    /// Measured precipitation rates in each bin in this radial in ascending order of distance
     pub precip_rates: Vec<Velocity>,
 }
 
