@@ -50,7 +50,7 @@ use utils::*;
 /// [nom]: https://docs.rs/nom/latest/nom/
 pub type ParseResult<'a, T> = Result<(T, &'a [u8]), DiprError>;
 
-#[derive(Debug)]
+#[derive(Clone, Debug, PartialEq)]
 /// Semantically useful representation of a DIPR product file
 ///
 /// Create this struct with [parse_dipr].

@@ -1,6 +1,6 @@
 {
   description = ''
-    Convert the National Weather Service's (NWS) Digital Instantaneous Precipitation Rate (DIPR)
+    Converts the National Weather Service's (NWS) Digital Instantaneous Precipitation Rate (DIPR)
     radar product from its native data format into more common vector GIS formats'';
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs";

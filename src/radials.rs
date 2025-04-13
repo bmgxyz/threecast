@@ -7,7 +7,7 @@ use uom::si::{
 
 use crate::{ParseResult, inch_per_hour, utils::*};
 
-#[derive(Debug)]
+#[derive(Clone, Debug, PartialEq, PartialOrd, Default)]
 /// Precipitation rates measured in a particular direction
 pub struct Radial {
     /// Bearing along which this radial points

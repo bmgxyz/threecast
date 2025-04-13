@@ -1,9 +1,17 @@
 [package]
 name = "dipr"
+description = """
+Converts the National Weather Service's (NWS) Digital Instantaneous Precipitation Rate (DIPR) radar
+product from its native data format into more common vector GIS formats
+"""
 version = "0.1.0"
 license = "Apache-2.0"
 authors = ["Bradley Gannon <bradley@bradleygannon.com>"]
 edition = "2024"
+repository = "https://github.com/bmgxyz/dipr"
+readme = "README.md"
+keywords = ["gis", "geo", "geography", "geospatial"]
+categories = ["science::geo", "command-line-utilities"]
 
 [dependencies]
 bzip2-rs = "0.1.2"

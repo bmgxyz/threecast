@@ -5,7 +5,7 @@ use uom::si::f32::Velocity;
 
 use crate::{DiprError, ParseResult, inch_per_hour, utils::*};
 
-#[derive(Debug)]
+#[derive(Copy, Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Hash)]
 pub enum OperationalMode {
     Maintenance,
     CleanAir,
