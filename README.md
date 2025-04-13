@@ -1,22 +1,23 @@
-# threecast
+# dipr
 
-*Like a forecast, but smaller*
+[![Crates.io](https://img.shields.io/crates/v/dipr)](https://crates.io/crates/dipr)
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
 
-This project used to be a mildly useful precipitation nowcaster, but I've removed a lot of features
-and focused on [doing one thing well][unix philosophy]. That "one thing" is to convert the National
-Weather Service's (NWS) Digital Instantaneous Precipitation Rate (DIPR) radar product from [its
-native data format][spec] into more common vector GIS formats. The two supported target formats are
-[Shapefile][shapefile] and [GeoJSON][geojson]. Other tools are better at downloading the data or
-processing it after conversion.
+Converts the National Weather Service's (NWS) Digital Instantaneous Precipitation Rate (DIPR) radar
+product from [its native data format][spec] into more common vector GIS formats. The two supported
+target formats are [Shapefile][shapefile] and [GeoJSON][geojson].
 
-[unix philosophy]: https://en.wikipedia.org/wiki/Unix_philosophy
 [spec]: https://www.roc.noaa.gov/public-documents/icds/2620001T.pdf
 [shapefile]: https://en.wikipedia.org/wiki/Shapefile
 [geojson]: https://en.wikipedia.org/wiki/GeoJSON
 
 ## Usage
 
-### As a CLI Tool
+This crate provides a command line tool called `dipr` that parses DIPR files and either prints
+information about them or converts them into Shapefile or GeoJSON. `dipr` is also available as a
+library. See [the docs][docs].
+
+[docs]: https://docs.rs/dipr/latest/dipr/
 
 1. Download data from [here][data]. You'll need to know the [station code][nws stations wiki] for
    the radar you're interested in. The file called `sn.last` is the most recent scan. The scan files
@@ -28,24 +29,19 @@ processing it after conversion.
    like:
 
 ```bash
-gdal_rasterize -l foo -a precipRate -ts 1920 1080 -a_nodata 0.0 -ot Float32 -of GTiff foo.geojson foo.tif > /dev/null
+gdal_rasterize \
+   -l foo \
+   -a precipRate \
+   -ts 1920 1080 \
+   -a_nodata 0.0 \
+   -ot Float32 \
+   -of GTiff \
+   foo.geojson foo.tif > /dev/null
 ```
 
 [nws stations wiki]: https://en.wikipedia.org/wiki/List_of_National_Weather_Service_Weather_Forecast_Offices
 [data]: https://tgftp.nws.noaa.gov/SL.us008001/DF.of/DC.radar/DS.176pr/
 [circular buffer]: https://en.wikipedia.org/wiki/Circular_buffer
-
-### As a Library
-
-The `dipr` library only provides one public function, `parse_dipr`, which takes `&[u8]` as input and
-returns `Result<PrecipRate, DiprError>`. `DiprError` is an enum that either indicates a
-product-specific parsing error or wraps a lower-level error. `PrecipRate` is a structure that
-contains a useful subset of the data in the original file. The precipitation bin data is available
-in the `radials` field. `PrecipRate` also has a `to_polygons` method that allows the user to extract
-the precipitation bin data as `Vec<(Polygon<f32>, Velocity)>`, where each tuple contains a
-`geo_types::geometry::Polygon` defining the bin's boundary and a `uom::si::f32::Velocity` indicating
-the precipitation rate for that bin. All fields in all structs use types that encode semantic or
-unit-aware meaning where possible.
 
 ## License
 
